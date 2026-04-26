@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>6학년 4반 학급 홈페이지</title>
+  
+  <!-- Tailwind CSS 로드 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome 아이콘 로드 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- React 로드 -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase 모듈 로드 -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
+    // React 코드에서 사용할 수 있도록 window에 등록
+    window.firebaseModules = {
+      initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
+      getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc,
+      getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject
+    };
+  </script>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+
+  <!-- React 앱 코드 (Babel) -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const { 
+      initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, 
+      getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc,
+      getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject 
+    } = window.firebaseModules;
+
+    // 아이콘 컴포넌트 (FontAwesome 맵핑)
+    const Icon = ({ name, size = 24, className = "" }) => (
+      <i className={`fa-solid fa-${name} ${className}`} style={{ fontSize: `${size}px` }}></i>
+    );
+
+    // 선생님 Firebase 프로젝트 설정 적용
+    const isCanvasEnvironment = typeof __firebase_config !== 'undefined';
+    const firebaseConfig = isCanvasEnvironment ? JSON.parse(__firebase_config) : {
+      apiKey: "AIzaSyDrZ5KDbkfR3hDj9U0lI2VHhgzNXNE_1cU",
+      authDomain: "school-debate-1.firebaseapp.com",
+      projectId: "school-debate-1",
+      storageBucket: "school-debate-1.firebasestorage.app",
+      messagingSenderId: "711490484046",
+      appId: "1:711490484046:web:1fa6e1400c1451d776101f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const storage = getStorage(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'school-debate-1';
+
+    // 명렬표
+    const classRoster = [
+      { name: '고우민', gender: '남' }, { name: '권다윤', gender: '여' }, { name: '김도진', gender: '남' },
+      { name: '김사랑', gender: '여' }, { name: '김하준', gender: '남' }, { name: '김형민', gender: '남' },
+      { name: '박성훈', gender: '남' }, { name: '박주희', gender: '여' }, { name: '성아림', gender: '여' },
+      { name: '양선우', gender: '남' }, { name: '염성빈', gender: '남' }, { name: '오하린', gender: '여' },
+      { name: '유주원', gender: '남' }, { name: '이가은', gender: '여' }, { name: '이승재', gender: '남' },
+      { name: '이은', gender: '여' }, { name: '이현성', gender: '남' }, { name: '정하윤', gender: '여' },
+      { name: '최수호', gender: '남' }, { name: '최준혁', gender: '남' }, { name: '최지안', gender: '여' },
+      { name: '황아영', gender: '여' }, { name: '황재준', gender: '남' }, { name: '박라희', gender: '여' }
+    ];
+
+    function App() {
+      // ===== 공통 및 인증 상태 =====
+      const [user, setUser] = useState(null);
+      const [activeTab, setActiveTab] = useState('points'); // 포인트 탭을 기본으로 설정
+      const [copySuccess, setCopySuccess] = useState(false);
+      const [isProcessing, setIsProcessing] = useState(false);
+
+      const [showTeacherAuth, setShowTeacherAuth] = useState(false);
+      const [isTeacher, setIsTeacher] = useState(false);
+      const [teacherPwd, setTeacherPwd] = useState('');
+      const [teacherError, setTeacherError] = useState('');
+
+      // ===== 설문조사 관련 상태 =====
+      const [surveys, setSurveys] = useState([]);
+      const [isSubmitted, setIsSubmitted] = useState(false);
+      const [formData, setFormData] = useState({ name: '', nominee: '', reason: '' });
+      const [surveyErrorMsg, setSurveyErrorMsg] = useState('');
+
+      // ===== 포인트 뱅크 관련 상태 =====
+      const [students, setStudents] = useState([]);
+      const [transactions, setTransactions] = useState([]);
+      const [sortBy, setSortBy] = useState('name');
+      const [searchTerm, setSearchTerm] = useState('');
+      const [selectedStudent, setSelectedStudent] = useState(null);
+      const [pointModalTab, setPointModalTab] = useState('history');
+      const [amount, setAmount] = useState('');
+      const [desc, setDesc] = useState('');
+
+      // ===== 링크 모음 관련 상태 =====
+      const [links, setLinks] = useState([]);
+      const [linkTitle, setLinkTitle] = useState('');
+      const [linkUrl, setLinkUrl] = useState('');
+
+      // ===== 영상 갤러리 관련 상태 =====
+      const [videos, setVideos] = useState([]);
+      const [videoTitle, setVideoTitle] = useState('');
+      const [uploadType, setUploadType] = useState('file'); // 'file' or 'link'
+      const [videoFile, setVideoFile] = useState(null);
+      const [videoLink, setVideoLink] = useState('');
+      const [uploadProgress, setUploadProgress] = useState(0);
+      const fileInputRef = useRef(null);
+
+      const closeModal = () => {
+        setSelectedStudent(null);
+        setAmount('');
+        setDesc('');
+        setPointModalTab('history');
+      };
+
+      // ===== Firebase 초기화 및 리스너 =====
+      useEffect(() => {
+        const initAuth = async () => {
+          try {
+            if (isCanvasEnvironment && typeof __initial_auth_token !== 'undefined') {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (err) {
+            console.log("Firebase 익명 로그인 미설정 우회 접속:", err);
+            setUser({ uid: 'anonymous-google-sites-user' }); 
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, (u) => { if (u) setUser(u); });
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user || !db) return;
+        
+        // 경로 설정
+        const surveyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveys') : collection(db, 'surveys');
+        const studentsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'students') : collection(db, 'students');
+        const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
+        const linksPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'links') : collection(db, 'links');
+        const videosPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'videos') : collection(db, 'videos');
+        
+        const unsubSurveys = onSnapshot(surveyPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          setSurveys(data);
+        });
+
+        const unsubStudents = onSnapshot(studentsPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          setStudents(data);
+          setSelectedStudent((current) => {
+            if (!current) return current;
+            const updated = data.find(s => s.id === current.id);
+            return updated || current;
+          });
+        });
+
+        const unsubHistory = onSnapshot(historyPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          setTransactions(data);
+        });
+
+        const unsubLinks = onSnapshot(linksPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          setLinks(data);
+        });
+
+        const unsubVideos = onSnapshot(videosPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          setVideos(data);
+        });
+
+        return () => { unsubSurveys(); unsubStudents(); unsubHistory(); unsubLinks(); unsubVideos(); };
+      }, [user]);
+
+      // ===== 하이클래스 코드 복사 기능 =====
+      const handleCopy = () => {
+        const textArea = document.createElement("textarea");
+        textArea.value = "39458986";
+        document.body.appendChild(textArea);
+        textArea.select();
+        try { document.execCommand('copy'); setCopySuccess(true); setTimeout(() => setCopySuccess(false), 3000); } catch (err) {}
+        document.body.removeChild(textArea);
+      };
+
+      // ===== 선생님 로그인 기능 =====
+      const handleTeacherLogin = (e) => {
+        e.preventDefault();
+        if (teacherPwd === '112233') { // 선생님 지정 비밀번호
+          setIsTeacher(true);
+          setShowTeacherAuth(false);
+          setTeacherPwd('');
+          setTeacherError('');
+          alert("선생님 관리자 모드가 활성화되었습니다.");
+        } else {
+          setTeacherError('비밀번호가 틀렸습니다.');
+        }
+      };
+
+      // ---------------- [1. 포인트 뱅크 로직] ----------------
+      const handleInitializeClass = async () => {
+        if (students.length > 0) {
+          alert("이미 명렬표가 세팅되어 있습니다. 중복 생성은 막아두었습니다.");
+          return;
+        }
+
+        setIsProcessing(true);
+        try {
+          const studentsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'students') : collection(db, 'students');
+          for (const student of classRoster) {
+            await addDoc(studentsPath, {
+              name: student.name,
+              gender: student.gender || '남',
+              remaining: 0,
+              cumulative: 0
+            });
+          }
+          alert("우리 반 명렬표 세팅 완료!");
+        } catch (error) {
+          console.error(error);
+          alert("명렬표 초기화 중 오류가 발생했습니다.");
+        }
+        setIsProcessing(false);
+      };
+
+      const handleTransaction = async (type, customAmount = amount, customDesc = desc) => {
+        if (!selectedStudent || isProcessing) return;
+        const parsedAmount = parseInt(customAmount, 10);
+        const cleanDesc = String(customDesc || '').trim();
+        
+        // 입력 검증
+        if (isNaN(parsedAmount) || parsedAmount <= 0) { 
+          alert("올바른 포인트를 입력해주세요."); 
+          return; 
+        }
+        if (!cleanDesc) { 
+          alert("내역을 적어주세요."); 
+          return; 
+        }
+
+        const latestStudent = students.find(s => s.id === selectedStudent.id) || selectedStudent;
+
+        // 사용 시 잔액 부족 검증 방어 로직 강화
+        const currentRemaining = latestStudent.remaining || 0;
+        if (type === 'spend' && currentRemaining < parsedAmount) { 
+          alert(`포인트가 부족합니다! (현재 잔액: ${currentRemaining}P)`); 
+          return; 
+        }
+
+        setIsProcessing(true);
+        try {
+          const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
+          const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', selectedStudent.id) : doc(db, 'students', selectedStudent.id);
+
+          // 1. 학생 포인트 계산 및 업데이트
+          let newRemaining = currentRemaining;
+          let newCumulative = latestStudent.cumulative || 0;
+          
+          if (type === 'earn') { 
+            newRemaining += parsedAmount; 
+            newCumulative += parsedAmount; 
+          } else { 
+            newRemaining -= parsedAmount; 
+          }
+
+          await updateDoc(studentDocRef, { 
+            remaining: newRemaining, 
+            cumulative: newCumulative 
+          });
+
+          // 2. 거래 내역(History) 추가
+          await addDoc(historyPath, {
+            studentId: selectedStudent.id,
+            studentName: selectedStudent.name,
+            type: type,
+            amount: parsedAmount,
+            description: cleanDesc,
+            timestamp: Date.now()
+          });
+
+          // 초기화
+          setAmount(''); 
+          setDesc('');
+          if (cleanDesc.includes("뽑기")) setPointModalTab('history');
+          setSelectedStudent(prev => prev ? { ...prev, remaining: newRemaining, cumulative: newCumulative } : prev);
+          
+        } catch (error) {
+          alert("오류가 발생했습니다.");
+          console.error(error);
+        }
+        setIsProcessing(false);
+      };
+
+      const filteredAndSortedStudents = [...students].filter(s => s.name.includes(searchTerm)).sort((a, b) => {
+        if (sortBy === 'remaining') return (b.remaining || 0) - (a.remaining || 0);
+        if (sortBy === 'cumulative') return (b.cumulative || 0) - (a.cumulative || 0);
+        return a.name.localeCompare(b.name);
+      });
+
+      const openStudentModal = (student) => {
+        setSelectedStudent(student);
+        // 선생님 모드면 '적립' 탭, 학생 모드면 '조회' 탭으로 바로 이동
+        setPointModalTab(isTeacher ? 'earn' : 'history');
+      };
+
+      // ---------------- [2. 영상 업로드 및 관리 로직] ----------------
+      const handleVideoUpload = async (e) => {
+        e.preventDefault();
+        if (!videoTitle.trim()) { alert('영상 제목을 입력해주세요.'); return; }
+        
+        setIsProcessing(true);
+        setUploadProgress(0);
+
+        try {
+          const videosPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'videos') : collection(db, 'videos');
+
+          if (uploadType === 'link') {
+            if (!videoLink.trim()) { alert('영상 링크를 입력해주세요.'); setIsProcessing(false); return; }
+            
+            let finalUrl = videoLink;
+            let videoFormat = 'link';
+            
+            // 유튜브 링크 자동 변환 (embed 형태로)
+            const ytMatch = videoLink.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+            if (ytMatch) {
+              finalUrl = `https://www.youtube.com/embed/${ytMatch[1]}`;
+              videoFormat = 'youtube';
+            } else if (!/^https?:\/\//i.test(finalUrl)) {
+              finalUrl = 'https://' + finalUrl;
+            }
+
+            await addDoc(videosPath, {
+              title: videoTitle,
+              url: finalUrl,
+              type: videoFormat,
+              timestamp: Date.now()
+            });
+            resetVideoForm();
+          } else {
+            // 직접 파일 업로드
+            if (!videoFile) { alert('업로드할 영상 파일을 선택해주세요.'); setIsProcessing(false); return; }
+            if (videoFile.size > 50 * 1024 * 1024) { alert('안정성을 위해 50MB 이하의 영상만 업로드 가능합니다.'); setIsProcessing(false); return; }
+
+            const storageRef = ref(storage, `artifacts/${appId}/public/videos/${Date.now()}_${videoFile.name}`);
+            const uploadTask = uploadBytesResumable(storageRef, videoFile);
+
+            uploadTask.on('state_changed',
+              (snapshot) => {
+                const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                setUploadProgress(progress);
+              },
+              (error) => {
+                console.error("업로드 에러:", error);
+                alert('업로드 실패: ' + error.message);
+                setIsProcessing(false);
+              },
+              async () => {
+                const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                await addDoc(videosPath, {
+                  title: videoTitle,
+                  url: downloadURL,
+                  storagePath: storageRef.fullPath,
+                  type: 'file',
+                  timestamp: Date.now()
+                });
+                resetVideoForm();
+              }
+            );
+            return; // 파일 업로드는 비동기라서 이대로 리턴
+          }
+        } catch (error) {
+          console.error(error);
+          alert("영상 등록 중 오류가 발생했습니다.");
+        }
+        if (uploadType === 'link') setIsProcessing(false);
+      };
+
+      const resetVideoForm = () => {
+        setVideoTitle('');
+        setVideoLink('');
+        setVideoFile(null);
+        setUploadProgress(0);
+        setIsProcessing(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+
+      const handleDeleteVideo = async (video) => {
+        if (!confirm(`'${video.title}' 영상을 정말 삭제하시겠습니까?`)) return;
+        try {
+          if (video.type === 'file' && video.storagePath) {
+            const storageRef = ref(storage, video.storagePath);
+            await deleteObject(storageRef).catch(e => console.log("Storage 삭제 우회:", e));
+          }
+          const videoDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'videos', video.id) : doc(db, 'videos', video.id);
+          await deleteDoc(videoDocRef);
+        } catch (error) {
+          console.error(error);
+          alert("삭제 중 오류가 발생했습니다.");
+        }
+      };
+
+      // ---------------- [3. 학급 링크 로직] ----------------
+      const handleAddLink = async (e) => {
+        e.preventDefault();
+        if (!linkTitle.trim() || !linkUrl.trim()) return;
+        setIsProcessing(true);
+        try {
+          const linksPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'links') : collection(db, 'links');
+          let formattedUrl = linkUrl;
+          if (!/^https?:\/\//i.test(formattedUrl)) {
+            formattedUrl = 'https://' + formattedUrl; 
+          }
+          await addDoc(linksPath, {
+            title: linkTitle,
+            url: formattedUrl,
+            timestamp: Date.now()
+          });
+          setLinkTitle('');
+          setLinkUrl('');
+        } catch (error) {
+          console.error(error);
+          alert("링크 추가 중 오류가 발생했습니다.");
+        }
+        setIsProcessing(false);
+      };
+
+      const handleDeleteLink = async (id) => {
+        if (!confirm("정말 이 링크를 삭제하시겠습니까?")) return;
+        try {
+          const linkDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'links', id) : doc(db, 'links', id);
+          await deleteDoc(linkDocRef);
+        } catch (error) {
+          console.error(error);
+          alert("삭제 중 오류가 발생했습니다.");
+        }
+      };
+
+      // ---------------- [4. 설문조사 투표 로직] ----------------
+      const handleSurveySubmit = async (e) => {
+        e.preventDefault();
+        setIsProcessing(true);
+        setSurveyErrorMsg('');
+        try {
+          const surveyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveys') : collection(db, 'surveys');
+          await addDoc(surveyPath, {
+            ...formData,
+            userId: user.uid,
+            timestamp: Date.now()
+          });
+          setIsSubmitted(true);
+          setFormData({ name: '', nominee: '', reason: '' });
+        } catch (err) {
+          console.error(err);
+          setSurveyErrorMsg("제출 중 오류가 발생했습니다.");
+        }
+        setIsProcessing(false);
+      };
+
+      const getVoteCounts = () => {
+        const counts = {};
+        surveys.forEach(s => {
+          const nomineeName = (s.nominee || '').trim(); // 빈 값 방어 코드
+          if (nomineeName) counts[nomineeName] = (counts[nomineeName] || 0) + 1;
+        });
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      };
+
+
+      // ===== UI 렌더링 =====
+      const TabButton = ({ id, iconName, label }) => (
+        <button onClick={() => setActiveTab(id)} className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-2xl transition-all duration-200 ${ activeTab === id ? 'bg-blue-600 text-white shadow-lg transform -translate-y-1' : 'bg-white text-slate-500 hover:bg-blue-50 border border-slate-100 shadow-sm' }`}>
+          <Icon name={iconName} size={20} className="mb-1 sm:mb-2" />
+          <span className="text-[11px] sm:text-sm font-bold truncate w-full text-center">{label}</span>
+        </button>
+      );
+
+      return (
+        <div className="min-h-screen font-sans text-slate-800 pb-20">
+          <header className="bg-white px-6 py-8 shadow-sm rounded-b-3xl mb-6 relative overflow-hidden max-w-4xl mx-auto">
+            <div className="absolute top-0 right-0 p-8 opacity-10"><Icon name="face-smile" size={120} /></div>
+            <div className="relative z-10 flex justify-between items-start">
+              <div>
+                <div className="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold mb-3">2026학년도</div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-2">6학년 4반 종합 공간 ✨</h1>
+                <p className="text-slate-500 font-medium text-sm sm:text-base">투표도 하고, 내 포인트도 확인해 보세요!</p>
+              </div>
+              {isTeacher && <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-sm font-bold flex items-center shadow-sm"><Icon name="shield-halved" size={16} className="mr-1" /> 선생님 모드</span>}
+            </div>
+          </header>
+
+          <main className="max-w-4xl mx-auto px-4">
+            {/* 탭 5개 분할 네비게이션 */}
+            <div className="grid grid-cols-5 gap-2 sm:gap-4 mb-8">
+              <TabButton id="points" iconName="coins" label="포인트" />
+              <TabButton id="videos" iconName="video" label="우리반 영상" />
+              <TabButton id="links" iconName="link" label="학급 링크" />
+              <TabButton id="survey" iconName="clipboard-list" label="1인 1역" />
+              <TabButton id="hiclass" iconName="mobile-screen-button" label="하이클래스" />
+            </div>
+
+            {isTeacher && (
+              <div className="mb-8 animate-in fade-in">
+                <button onClick={() => setActiveTab('teacher')} className={`w-full py-3 rounded-xl font-bold transition-all ${activeTab === 'teacher' ? 'bg-indigo-600 text-white shadow-md' : 'bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100'}`}>
+                  <Icon name="shield-halved" size={18} className="inline mr-2 mb-1" /> 투표 관리자 모드 열기
+                </button>
+              </div>
+            )}
+
+            <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[400px]">
+              
+              {/* === 포인트 뱅크 탭 === */}
+              {activeTab === 'points' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b pb-4">
+                    <h2 className="text-xl font-bold flex items-center text-indigo-800"><Icon name="coins" className="mr-2 text-yellow-500" />우리 반 포인트 현황</h2>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="relative">
+                        <Icon name="magnifying-glass" className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={14} />
+                        <input type="text" placeholder="이름 검색..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-32" />
+                      </div>
+                      <div className="relative">
+                        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto">
+                          <option value="name">이름순 (가나다)</option>
+                          <option value="remaining">남은 포인트순 ↓</option>
+                          <option value="cumulative">누적 포인트순 ↓</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {students.length === 0 ? (
+                    <div className="text-center py-16 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                      <Icon name="user" size={48} className="mx-auto text-slate-300 mb-4" />
+                      <h2 className="text-lg font-bold text-slate-700 mb-2">아직 명렬표가 세팅되지 않았습니다.</h2>
+                      {isTeacher ? (
+                        <button onClick={handleInitializeClass} disabled={isProcessing} className="mt-4 bg-indigo-600 text-white font-bold py-3 px-6 rounded-xl shadow-md">{isProcessing ? '세팅 중...' : '명렬표 초기 세팅하기 (24명)'}</button>
+                      ) : (<p className="text-slate-500">선생님께서 명렬표를 준비하고 계십니다.</p>)}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
+                      {filteredAndSortedStudents.map((student) => (
+                        <div key={student.id} onClick={() => openStudentModal(student)} className="bg-slate-50 rounded-2xl p-4 shadow-sm border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/30 cursor-pointer transition-all">
+                          <div className="flex justify-between items-start mb-3">
+                            <h3 className="text-base sm:text-lg font-bold text-slate-800">{student.name}</h3>
+                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${student.gender === '여' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}`}>{student.gender}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between items-center text-sm"><span className="text-slate-500 flex items-center text-xs"><Icon name="coins" size={12} className="mr-1"/> 잔액</span><span className="font-bold text-indigo-600">{(student.remaining || 0).toLocaleString()}</span></div>
+                            <div className="flex justify-between items-center text-xs"><span className="text-slate-400 flex items-center"><Icon name="arrow-trend-up" size={10} className="mr-1"/> 누적</span><span className="text-slate-400">{(student.cumulative || 0).toLocaleString()}</span></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* === 영상 갤러리 탭 === */}
+              {activeTab === 'videos' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex items-center justify-between mb-6 border-b pb-4">
+                    <h2 className="text-xl font-bold flex items-center text-slate-800">
+                      <Icon name="video" className="mr-2 text-indigo-600" />우리 반 영상 갤러리
+                    </h2>
+                  </div>
+
+                  {isTeacher && (
+                    <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl mb-6">
+                      <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center"><Icon name="film" size={14} className="mr-1"/> 새 영상 올리기 (선생님 전용)</h3>
+                      
+                      <div className="flex gap-2 mb-3">
+                        <button type="button" onClick={() => {setUploadType('file'); resetVideoForm();}} className={`px-4 py-2 text-sm font-bold rounded-lg border transition-colors ${uploadType === 'file' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>직접 업로드</button>
+                        <button type="button" onClick={() => {setUploadType('link'); resetVideoForm();}} className={`px-4 py-2 text-sm font-bold rounded-lg border transition-colors ${uploadType === 'link' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>유튜브 링크</button>
+                      </div>
+
+                      <form onSubmit={handleVideoUpload} className="flex flex-col gap-3">
+                        <input type="text" value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="영상 제목 (예: 가을 운동회 하이라이트)" className="w-full border border-indigo-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+                        
+                        {uploadType === 'link' ? (
+                          <input type="text" value={videoLink} onChange={(e) => setVideoLink(e.target.value)} placeholder="유튜브 링크 주소를 붙여넣으세요" className="w-full border border-indigo-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+                        ) : (
+                          <input type="file" accept="video/*" ref={fileInputRef} onChange={(e) => setVideoFile(e.target.files[0])} className="w-full border border-indigo-200 rounded-xl px-3 py-2 bg-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" required />
+                        )}
+
+                        {uploadProgress > 0 && uploadType === 'file' && (
+                          <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
+                            <div className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                          </div>
+                        )}
+
+                        <button type="submit" disabled={isProcessing} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-3 rounded-xl mt-1 transition-colors">
+                          {isProcessing ? '업로드 진행 중...' : '영상 등록하기'}
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {videos.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Icon name="video-slash" size={48} className="mx-auto mb-3 opacity-50" />
+                      <p>아직 등록된 영상이 없습니다.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                      {videos.map((video) => (
+                        <div key={video.id} className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col">
+                          
+                          <div className="w-full aspect-video bg-black flex items-center justify-center relative group">
+                            {video.type === 'youtube' ? (
+                              <iframe className="w-full h-full absolute inset-0" src={video.url} title={video.title} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+                            ) : video.type === 'file' ? (
+                              <video controls className="w-full h-full absolute inset-0 outline-none" preload="metadata">
+                                <source src={video.url} />
+                                지원하지 않는 브라우저입니다.
+                              </video>
+                            ) : (
+                              <a href={video.url} target="_top" className="flex flex-col items-center justify-center w-full h-full bg-slate-800 text-white hover:bg-slate-700 transition-colors">
+                                <Icon name="arrow-up-right-from-square" size={32} className="mb-2" />
+                                <span className="font-bold">외부 링크로 이동</span>
+                              </a>
+                            )}
+                          </div>
+                          
+                          <div className="p-4 flex justify-between items-start bg-white flex-1">
+                            <div>
+                              <h3 className="font-bold text-slate-800 line-clamp-2 leading-snug">{video.title}</h3>
+                              <p className="text-xs text-slate-400 mt-1">{new Date(video.timestamp).toLocaleDateString('ko-KR')}</p>
+                            </div>
+                            {isTeacher && (
+                              <button onClick={() => handleDeleteVideo(video)} className="ml-2 p-2 text-rose-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex-shrink-0" title="영상 삭제">
+                                <Icon name="trash-can" size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* === 학급 링크 탭 === */}
+              {activeTab === 'links' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex items-center justify-between mb-6 border-b pb-4">
+                    <h2 className="text-xl font-bold flex items-center text-slate-800">
+                      <Icon name="link" className="mr-2 text-indigo-600" />우리 반 필수 링크 모음
+                    </h2>
+                  </div>
+                  
+                  {isTeacher && (
+                    <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl mb-6">
+                      <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center"><Icon name="plus" size={14} className="mr-1"/> 새 링크 추가하기 (선생님 전용)</h3>
+                      <form onSubmit={handleAddLink} className="flex flex-col sm:flex-row gap-2">
+                        <input type="text" value={linkTitle} onChange={(e) => setLinkTitle(e.target.value)} placeholder="링크 제목 (예: 미리캔버스)" className="flex-1 border border-indigo-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+                        <input type="text" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="URL 주소 (예: canva.com)" className="flex-[2] border border-indigo-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+                        <button type="submit" disabled={isProcessing} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl text-sm transition-colors whitespace-nowrap">
+                          {isProcessing ? '추가 중...' : '추가'}
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {links.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <Icon name="folder-open" size={48} className="mx-auto mb-3 opacity-50" />
+                      <p>아직 등록된 링크가 없습니다.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                      {links.map((link) => (
+                        <div key={link.id} className="flex group">
+                          <a href={link.url} target="_top" rel="noopener noreferrer" className="flex-1 flex items-center p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50 transition-all">
+                            <div className="bg-indigo-100 text-indigo-600 w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0">
+                              <Icon name="arrow-up-right-from-square" size={16} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-bold text-slate-800 truncate group-hover:text-indigo-700">{link.title}</h3>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">{link.url}</p>
+                            </div>
+                          </a>
+                          
+                          <button onClick={(e) => {
+                            e.preventDefault();
+                            const textArea = document.createElement("textarea");
+                            textArea.value = link.url;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            try { document.execCommand('copy'); alert('링크 주소가 복사되었습니다!\n인터넷 주소창에 붙여넣기 해주세요.'); } catch (err) {}
+                            document.body.removeChild(textArea);
+                          }} className="ml-2 p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 rounded-2xl transition-all flex items-center justify-center bg-white shadow-sm" title="링크 복사하기">
+                            <Icon name="copy" size={16} />
+                          </button>
+
+                          {isTeacher && (
+                            <button onClick={() => handleDeleteLink(link.id)} className="ml-2 p-3 text-rose-300 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-2xl transition-all flex items-center justify-center" title="삭제">
+                              <Icon name="trash-can" size={16} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* === 설문조사 탭 === */}
+              {activeTab === 'survey' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-2xl mx-auto">
+                  <div className="flex items-center justify-between mb-6 border-b pb-4">
+                    <h2 className="text-xl font-bold flex items-center text-slate-800"><Icon name="clipboard-list" className="mr-2 text-blue-600" />이번 달 '1인 1역' 우수 학생 추천</h2>
+                  </div>
+                  {isSubmitted ? (
+                    <div className="py-6 text-center animate-in zoom-in duration-500">
+                      <div className="bg-green-100 text-green-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Icon name="circle-check" size={32} /></div>
+                      <h3 className="text-2xl font-bold text-slate-800 mb-2">제출 완료!</h3>
+                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 mt-6">
+                        <h4 className="font-bold text-slate-700 flex items-center justify-center mb-4 border-b pb-3"><Icon name="chart-simple" size={18} className="mr-2 text-blue-500" /> 현재 우리 반 추천 현황 🏆</h4>
+                        <ul className="space-y-3">
+                          {getVoteCounts().map(([name, count], index) => (
+                            <li key={name} className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                              <span className="font-bold text-slate-800">{index === 0 ? '🥇 ' : index === 1 ? '🥈 ' : index === 2 ? '🥉 ' : '👏 '} {name}</span>
+                              <span className="bg-blue-100 text-blue-700 font-bold px-3 py-1 rounded-full text-sm">{count}표</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <button onClick={() => setIsSubmitted(false)} className="text-blue-600 font-bold hover:underline mt-6">다른 친구 또 추천하기</button>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSurveySubmit} className="space-y-4">
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start text-sm text-yellow-800 font-medium leading-relaxed">
+                        <Icon name="triangle-exclamation" className="text-yellow-500 mr-3 shrink-0 mt-0.5" size={18} />장난 응답을 막기 위해 <strong>본인 이름</strong>을 적어주세요.
+                      </div>
+                      {surveyErrorMsg && <div className="text-red-500 text-sm font-bold bg-red-50 p-3 rounded-lg">{surveyErrorMsg}</div>}
+                      <input type="text" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} placeholder="내 이름 (예: 홍길동)" className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50" required />
+                      <input type="text" value={formData.nominee} onChange={(e) => setFormData({...formData, nominee: e.target.value})} placeholder="추천할 친구 이름" className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50" required />
+                      <textarea value={formData.reason} onChange={(e) => setFormData({...formData, reason: e.target.value})} placeholder="추천하는 이유 (구체적으로!)" className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50 min-h-[100px]" required />
+                      <button type="submit" disabled={isProcessing} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl flex items-center justify-center mt-2 shadow-md">
+                        <Icon name="paper-plane" size={18} className="mr-2" /> {isProcessing ? '저장 중...' : '제출하기'}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              {/* === 하이클래스 가입 탭 === */}
+              {activeTab === 'hiclass' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 text-center max-w-xl mx-auto relative">
+                  {copySuccess && (
+                    <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-full font-bold shadow-lg flex items-center z-50">
+                      <Icon name="circle-check" size={18} className="mr-2" /> 복사되었습니다!
+                    </div>
+                  )}
+                  <div className="bg-blue-50 text-blue-800 p-6 rounded-2xl mb-6 border border-blue-100">
+                    <h2 className="text-xl font-black mb-2">🚨 하이클래스에 꼭 가입하세요!</h2>
+                    <div className="bg-white p-4 rounded-xl shadow-sm my-4">
+                      <p className="text-sm text-slate-500 mb-2 font-bold">👇 터치해서 초대 코드 복사하기 👇</p>
+                      <button onClick={handleCopy} className="text-3xl font-mono font-black tracking-widest text-blue-600 bg-blue-50 py-3 w-full rounded-lg border-2 border-dashed border-blue-200">39458986</button>
+                    </div>
+                  </div>
+                  <button className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl flex items-center justify-center shadow-md">
+                    <Icon name="download" size={20} className="mr-2" /> 앱 설치하고 가입하기
+                  </button>
+                </div>
+              )}
+
+              {/* === 선생님 투표 관리자 탭 === */}
+              {activeTab === 'teacher' && isTeacher && (
+                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                   <h2 className="text-xl font-bold text-indigo-800 mb-6 border-b pb-4"><Icon name="shield-halved" className="inline mr-2" /> 투표 상세 내역 관리</h2>
+                   <div className="space-y-4">
+                     {surveys.map((survey) => (
+                       <div key={survey.id} className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                         <p className="font-bold text-slate-700 mb-2">{survey.name} 님이 👉 <span className="text-blue-600">{survey.nominee}</span> 추천</p>
+                         <div className="bg-white p-3 rounded-xl border border-slate-100 text-slate-600 text-sm">{survey.reason}</div>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+              )}
+            </div>
+          </main>
+
+          {/* ===== 포인트 관리자 전용 모달 창 ===== */}
+          {selectedStudent && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="bg-indigo-50 p-6 border-b border-indigo-100 relative">
+                  <button onClick={closeModal} className="absolute top-4 right-4 text-indigo-400 hover:text-indigo-700"><Icon name="xmark" size={24} /></button>
+                  <h2 className="text-2xl font-black text-indigo-900 mb-1 flex items-center">
+                    {selectedStudent.name}
+                    {!isTeacher && <span className="ml-3 text-xs bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full font-bold">조회 모드</span>}
+                  </h2>
+                  <div className="flex gap-4 text-sm mt-3">
+                    <div className="bg-white px-3 py-2 rounded-xl shadow-sm border border-indigo-100 flex-1"><span className="text-slate-500 block text-xs mb-1">잔여 포인트</span><span className="font-black text-indigo-600 text-lg">{(selectedStudent.remaining || 0).toLocaleString()} P</span></div>
+                    <div className="bg-white px-3 py-2 rounded-xl shadow-sm border border-indigo-100 flex-1"><span className="text-slate-500 block text-xs mb-1">누적 포인트</span><span className="font-bold text-slate-700 text-lg">{(selectedStudent.cumulative || 0).toLocaleString()} P</span></div>
+                  </div>
+                </div>
+
+                <div className="flex border-b border-slate-200 bg-white">
+                  {isTeacher && (
+                    <>
+                      <button onClick={() => setPointModalTab('earn')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'earn' ? 'text-green-600 border-b-2 border-green-600 bg-green-50' : 'text-slate-500'}`}><Icon name="plus" size={16} className="mr-1" /> 적립</button>
+                      <button onClick={() => setPointModalTab('spend')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'spend' ? 'text-rose-600 border-b-2 border-rose-600 bg-rose-50' : 'text-slate-500'}`}><Icon name="minus" size={16} className="mr-1" /> 사용</button>
+                    </>
+                  )}
+                  <button onClick={() => setPointModalTab('history')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500'}`}><Icon name="clock-rotate-left" size={16} className="mr-1" /> 전체 내역</button>
+                </div>
+
+                <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+                  {pointModalTab === 'earn' && isTeacher && (
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">포인트 금액</label>
+                      <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 100" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-green-500" />
+                      <label className="block text-sm font-bold text-slate-700 mb-1">적립 사유</label>
+                      <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 발표, 과제 우수 등" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-green-500" />
+                      <button onClick={() => handleTransaction('earn')} disabled={isProcessing} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-md">포인트 지급하기</button>
+                    </div>
+                  )}
+
+                  {pointModalTab === 'spend' && isTeacher && (
+                    <div>
+                      <div className="bg-rose-100/50 border border-rose-200 rounded-2xl p-4 mb-6">
+                        <h4 className="font-bold text-rose-800 flex items-center mb-3"><Icon name="gift" size={16} className="mr-1" /> 400P 퀵 뽑기 보상</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {['선곡권 3곡', '포인트 선물권', '옆 자리 선택', '당첨', '쉬는시간 2분'].map((item) => (
+                            <button key={item} onClick={() => handleTransaction('spend', '400', `뽑기: ${item}`)} disabled={isProcessing || (selectedStudent.remaining || 0) < 400} className="bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm disabled:opacity-50">{item}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-200 pt-4">
+                        <label className="block text-sm font-bold text-slate-700 mb-1">수동 차감 금액</label>
+                        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 100" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-rose-500" />
+                        <label className="block text-sm font-bold text-slate-700 mb-1">사용 내역</label>
+                        <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 연필 구매 등" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-rose-500" />
+                        <button onClick={() => handleTransaction('spend')} disabled={isProcessing} className="w-full bg-rose-600 text-white font-bold py-4 rounded-xl shadow-md">포인트 차감하기</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {pointModalTab === 'history' && (
+                    <div className="space-y-3">
+                      {transactions.filter(t => t.studentId === selectedStudent.id).length === 0 ? (
+                        <p className="text-center py-10 text-slate-400">기록된 내역이 없습니다.</p>
+                      ) : (
+                        transactions.filter(t => t.studentId === selectedStudent.id).map((t) => (
+                          <div key={t.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-slate-800 text-sm mb-1">{t.description}</p>
+                              <p className="text-xs text-slate-400"><Icon name="clock" size={10} className="inline mr-1" />{t.timestamp ? new Date(t.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '시간 기록 없음'}</p>
+                            </div>
+                            <div className={`font-black ${t.type === 'earn' ? 'text-green-600' : 'text-rose-600'}`}>
+                              {t.type === 'earn' ? '+' : '-'}{t.amount}P
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <footer className="text-center py-8 text-slate-400 text-sm relative max-w-4xl mx-auto">
+            <p>담임선생님 연락처: 010-XXXX-XXXX</p>
+            <p className="mt-1">ⓒ 2026 6학년 4반. All rights reserved.</p>
+            
+            <div className="absolute right-4 bottom-4">
+              <button onClick={() => setShowTeacherAuth(!showTeacherAuth)} className="p-3 text-slate-300 hover:text-indigo-400 transition-colors bg-white rounded-full shadow-sm border border-slate-100">
+                <Icon name={isTeacher ? "unlock" : "lock"} size={18} />
+              </button>
+            </div>
+
+            {showTeacherAuth && !isTeacher && (
+              <div className="absolute right-4 bottom-16 bg-white p-5 rounded-2xl shadow-xl border border-slate-200 text-left w-64 z-50">
+                <p className="font-bold text-slate-800 mb-3 flex items-center"><Icon name="shield-halved" size={16} className="mr-2 text-indigo-500"/> 선생님 관리자 모드</p>
+                <form onSubmit={handleTeacherLogin}>
+                  <input type="password" value={teacherPwd} onChange={(e) => setTeacherPwd(e.target.value)} placeholder="비밀번호를 입력하세요" className="w-full border border-slate-300 rounded-xl px-4 py-2 mb-2 focus:ring-2 focus:ring-indigo-500" />
+                  {teacherError && <p className="text-xs text-red-500 mb-3 font-bold">{teacherError}</p>}
+                  <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-colors">로그인</button>
+                </form>
+              </div>
+            )}
+          </footer>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
