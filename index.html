@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>6학년 4반 학급 홈페이지</title>
 
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
   <!-- Pretendard 폰트 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <!-- Tailwind CSS 로드 -->
@@ -200,6 +202,11 @@
       // ===== 공통 및 인증 상태 =====
       const [user, setUser] = useState(null);
       const [activeTab, setActiveTab] = useState('points');
+      // 한번 연 iframe 탭은 유지(keep-alive): 탭 전환 시 다시 로딩하지 않도록
+      const [visitedTabs, setVisitedTabs] = useState({});
+      useEffect(() => {
+        setVisitedTabs(prev => prev[activeTab] ? prev : { ...prev, [activeTab]: true });
+      }, [activeTab]);
       const [copySuccess, setCopySuccess] = useState(false);
       const [isProcessing, setIsProcessing] = useState(false);
       const [showTeacherAuth, setShowTeacherAuth] = useState(false);
@@ -2136,9 +2143,9 @@
                   )}
                 </div>
               )}
-              {/* === 사진 게시판 탭: 승인된 사진만 가볍게 보기 === */}
-              {activeTab === 'photos' && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* === 사진 게시판 탭: 승인된 사진만 가볍게 보기 (keep-alive) === */}
+              {visitedTabs.photos && (
+                <div className={(activeTab === 'photos' ? '' : 'hidden ') + "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
                   <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="inline-flex items-center bg-emerald-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">공개 보기 전용</div>
@@ -2158,9 +2165,9 @@
                   <PhotoAppFrame mode="photos" title="6학년 4반 승인 사진 게시판" minHeight="720px" tone="photos" />
                 </div>
               )}
-              {/* === 사진 제출 탭: 영상 제출함과 분리 === */}
-              {activeTab === 'submit' && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* === 사진 제출 탭: 영상 제출함과 분리 (keep-alive) === */}
+              {visitedTabs.submit && (
+                <div className={(activeTab === 'submit' ? '' : 'hidden ') + "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
                   <div className="bg-orange-50 border border-orange-200 rounded-3xl p-5 mb-6">
                     <div className="inline-flex items-center bg-orange-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">제출 전용 · 승인 대기</div>
                     <h2 className="text-xl font-bold flex items-center text-slate-800">
@@ -2231,9 +2238,9 @@
                   <PhotoAppFrame mode="submit" title="6학년 4반 사진 제출함" minHeight="760px" tone="submit" />
                 </div>
               )}
-              {/* === 학생 영상 제출 탭: Google Drive 통합 제출 === */}
-              {activeTab === 'videoSubmit' && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* === 학생 영상 제출 탭: Google Drive 통합 제출 (keep-alive) === */}
+              {visitedTabs.videoSubmit && (
+                <div className={(activeTab === 'videoSubmit' ? '' : 'hidden ') + "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
                   <div className="bg-cyan-50 border border-cyan-200 rounded-3xl p-5 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="inline-flex items-center bg-cyan-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">영상 제출 · Google Drive 저장</div>
@@ -2253,9 +2260,9 @@
                   <PhotoAppFrame mode="submit" title="6학년 4반 Google Drive 영상 제출함" minHeight="980px" tone="videos" />
                 </div>
               )}
-              {/* === 승인 관리 탭: 선생님 모드에서만 표시 === */}
-              {activeTab === 'approval' && isTeacher && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {/* === 승인 관리 탭: 선생님 모드에서만 표시 (keep-alive) === */}
+              {visitedTabs.approval && isTeacher && (
+                <div className={(activeTab === 'approval' ? '' : 'hidden ') + "animate-in fade-in slide-in-from-bottom-4 duration-500"}>
                   <div className="bg-indigo-50 border border-indigo-200 rounded-3xl p-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <div className="inline-flex items-center bg-indigo-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">교사용 승인 화면</div>
