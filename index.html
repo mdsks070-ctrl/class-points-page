@@ -3,61 +3,86 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>6학년 4반 학급 홈페이지 · 영상제출 Google Drive 복구본</title>
-  
+  <title>6학년 4반 학급 홈페이지</title>
+
+  <!-- Pretendard 폰트 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <!-- Tailwind CSS 로드 -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Pretendard Variable', 'Pretendard', 'sans-serif'] } } }
+    };
+  </script>
+
   <!-- FontAwesome 아이콘 로드 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
+
+  <style>
+    body { background: linear-gradient(160deg, #eef2ff 0%, #fdf4ff 45%, #fff7ed 100%); min-height: 100vh; }
+    @keyframes floaty { 0%,100%{transform:translateY(0) rotate(-3deg)} 50%{transform:translateY(-12px) rotate(3deg)} }
+    @keyframes shine { 0%{background-position:-200% center} 100%{background-position:200% center} }
+    @keyframes spinly { to { transform: rotate(360deg); } }
+    .anim-float { animation: floaty 4s ease-in-out infinite; }
+    .text-shine {
+      background: linear-gradient(90deg,#fff 20%,#fde68a 40%,#fff 60%);
+      background-size: 200% auto; -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent; animation: shine 3s linear infinite;
+    }
+    .spinner {
+      width: 42px; height: 42px; margin: 0 auto 16px; border-radius: 50%;
+      border: 4px solid #e0e7ff; border-top-color: #6366f1; animation: spinly .8s linear infinite;
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 8px; }
+  </style>
+
   <!-- React 로드 -->
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
-
-  <!-- Firebase 모듈 로드: Promise를 먼저 만들어 앱 코드가 안전하게 기다리도록 함 -->
+  <!-- Firebase 로드: compat 방식이라 로컬 파일(file://)에서도 동작합니다 -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script>
-    window.firebaseModulesReady = Promise.all([
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"),
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"),
-      import("https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js")
-    ]).then(([firebaseApp, firebaseAuth, firebaseFirestore, firebaseStorage]) => ({
-      initializeApp: firebaseApp.initializeApp,
-      getAuth: firebaseAuth.getAuth,
-      signInAnonymously: firebaseAuth.signInAnonymously,
-      onAuthStateChanged: firebaseAuth.onAuthStateChanged,
-      signInWithCustomToken: firebaseAuth.signInWithCustomToken,
-      getFirestore: firebaseFirestore.getFirestore,
-      collection: firebaseFirestore.collection,
-      addDoc: firebaseFirestore.addDoc,
-      updateDoc: firebaseFirestore.updateDoc,
-      doc: firebaseFirestore.doc,
-      onSnapshot: firebaseFirestore.onSnapshot,
-      deleteDoc: firebaseFirestore.deleteDoc,
-      getStorage: firebaseStorage.getStorage,
-      ref: firebaseStorage.ref,
-      uploadBytesResumable: firebaseStorage.uploadBytesResumable,
-      getDownloadURL: firebaseStorage.getDownloadURL,
-      deleteObject: firebaseStorage.deleteObject
-    }));
+    // 기존 모듈형 API 이름을 compat SDK에 연결하는 어댑터 — 앱 코드는 수정 없이 그대로 동작
+    window.firebaseModulesReady = new Promise(function (resolve, reject) {
+      if (typeof firebase === 'undefined') {
+        reject(new Error('Firebase 스크립트를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'));
+        return;
+      }
+      resolve({
+        initializeApp: function (config) { return firebase.initializeApp(config); },
+        getAuth: function () { return firebase.auth(); },
+        signInAnonymously: function (auth) { return auth.signInAnonymously(); },
+        onAuthStateChanged: function (auth, cb) { return auth.onAuthStateChanged(cb); },
+        signInWithCustomToken: function (auth, token) { return auth.signInWithCustomToken(token); },
+        getFirestore: function () { return firebase.firestore(); },
+        collection: function (db) { return db.collection(Array.prototype.slice.call(arguments, 1).join('/')); },
+        addDoc: function (colRef, data) { return colRef.add(data); },
+        updateDoc: function (docRef, data) { return docRef.update(data); },
+        doc: function (db) { return db.doc(Array.prototype.slice.call(arguments, 1).join('/')); },
+        onSnapshot: function (refOrQuery, onNext, onError) { return refOrQuery.onSnapshot(onNext, onError); },
+        deleteDoc: function (docRef) { return docRef.delete(); },
+        getStorage: function () { return firebase.storage(); },
+        ref: function (storage, path) { return storage.ref(path); },
+        uploadBytesResumable: function (storageRef, file) { return storageRef.put(file); },
+        getDownloadURL: function (storageRef) { return storageRef.getDownloadURL(); },
+        deleteObject: function (storageRef) { return storageRef.delete(); }
+      });
+    });
   </script>
 </head>
-<body class="bg-slate-50">
+<body>
   <div id="root">
-    <div style="max-width:760px;margin:40px auto;padding:24px;font-family:sans-serif;text-align:center;color:#334155;line-height:1.6;">
-      <h2 style="font-size:22px;font-weight:800;margin:0 0 8px;color:#0f172a;">학급 홈페이지를 불러오는 중입니다…</h2>
-      <p style="margin:0 0 18px;">Google Drive 미리보기나 임베드 화면에서 멈추면 아래 버튼으로 직접 열어주세요.</p>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
-        <a href="https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=photos" target="_blank" rel="noopener noreferrer" style="display:block;background:#059669;color:white;text-decoration:none;font-weight:800;padding:13px 14px;border-radius:14px;">사진 보기</a>
-        <a href="https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=submit" target="_blank" rel="noopener noreferrer" style="display:block;background:#ea580c;color:white;text-decoration:none;font-weight:800;padding:13px 14px;border-radius:14px;">사진·영상 제출</a>
-        <a href="https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=teacher" target="_blank" rel="noopener noreferrer" style="display:block;background:#4f46e5;color:white;text-decoration:none;font-weight:800;padding:13px 14px;border-radius:14px;">승인 관리</a>
-        <a href="https://drive.google.com/drive/folders/18_LGatb9cEBvBI2Hqzt7g30X55SgSHwS" target="_blank" rel="noopener noreferrer" style="display:block;background:#0891b2;color:white;text-decoration:none;font-weight:800;padding:13px 14px;border-radius:14px;">영상 Drive 폴더</a>
-      </div>
+    <div style="max-width:420px;margin:120px auto;padding:36px 28px;text-align:center;color:#334155;line-height:1.6;background:rgba(255,255,255,.85);border-radius:28px;box-shadow:0 10px 30px rgba(91,110,245,.12);">
+      <div class="spinner"></div>
+      <h2 style="font-size:19px;font-weight:800;margin:0 0 6px;color:#0f172a;">우리 반 공간을 여는 중이에요</h2>
+      <p style="margin:0;font-size:13px;font-weight:600;color:#94a3b8;">잠시만 기다려 주세요 🎈</p>
     </div>
   </div>
-
   <!-- React 앱 코드 (Babel) -->
   <script type="text/babel">
     (async function bootstrapClassSite() {
@@ -73,29 +98,24 @@
           getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, deleteDoc,
           getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject
         } = firebaseModules;
-
     // 아이콘 컴포넌트 (FontAwesome 맵핑)
     const Icon = ({ name, size = 24, className = "" }) => (
       <i className={`fa-solid fa-${name} ${className}`} style={{ fontSize: `${size}px` }}></i>
     );
-
     // ===== Drive 사진 게시판 Apps Script 웹앱 연결 =====
     // Apps Script 배포 URL은 반드시 /exec 로 끝나는 주소를 넣으세요.
     // 예: https://script.google.com/macros/s/배포ID/exec
-    const PHOTO_BOARD_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec';
+    const PHOTO_BOARD_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxr36Z6jND-GhCaInL5P6FohaIdX27t8UnTejifkEplilqhSjpbhjoiz31Mmu-sT2XDig/exec';
     const PHOTO_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1CfGsDpBbQJwtaj8efzIHe9tUoQYLCeZ4?usp=sharing';
     const VIDEO_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/18_LGatb9cEBvBI2Hqzt7g30X55SgSHwS';
-
     const cleanPhotoBoardUrl = (PHOTO_BOARD_WEBAPP_URL || '').trim();
     const isPhotoBoardUrlReady = /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec(?:\?.*)?$/.test(cleanPhotoBoardUrl);
     const isPhotoBoardUrlDrive = /^https?:\/\/drive\.google\.com\//.test(cleanPhotoBoardUrl);
-
     const getPhotoAppUrl = (mode) => {
       if (!isPhotoBoardUrlReady) return cleanPhotoBoardUrl;
       const separator = cleanPhotoBoardUrl.includes('?') ? '&' : '?';
       return `${cleanPhotoBoardUrl}${separator}mode=${encodeURIComponent(mode)}`;
     };
-
     // 선생님 Firebase 프로젝트 설정 적용
     const isCanvasEnvironment = typeof __firebase_config !== 'undefined';
     const firebaseConfig = isCanvasEnvironment ? JSON.parse(__firebase_config) : {
@@ -106,13 +126,11 @@
       messagingSenderId: "711490484046",
       appId: "1:711490484046:web:1fa6e1400c1451d776101f"
     };
-
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
     const storage = getStorage(app);
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'school-debate-1';
-
     // 명렬표
     const classRoster = [
       { name: '고우민', gender: '남' }, { name: '권다윤', gender: '여' }, { name: '김도진', gender: '남' },
@@ -124,8 +142,6 @@
       { name: '최수호', gender: '남' }, { name: '최준혁', gender: '남' }, { name: '최지안', gender: '여' },
       { name: '황아영', gender: '여' }, { name: '황재준', gender: '남' }, { name: '박라희', gender: '여' }
     ];
-
-
     // 화면에 별도 항목으로 보여줄 현재 월의 1인 1역 재투표 고유 키
     const getCurrentOneRoleVoteMeta = () => {
       const now = new Date();
@@ -141,26 +157,22 @@
         title: `${year}년 ${monthNumber}월 1인 1역 재투표`
       };
     };
-
     function App() {
       // ===== 공통 및 인증 상태 =====
       const [user, setUser] = useState(null);
       const [activeTab, setActiveTab] = useState('points');
       const [copySuccess, setCopySuccess] = useState(false);
       const [isProcessing, setIsProcessing] = useState(false);
-
       const [showTeacherAuth, setShowTeacherAuth] = useState(false);
       const [isTeacher, setIsTeacher] = useState(false);
       const [teacherPwd, setTeacherPwd] = useState('');
       const [teacherError, setTeacherError] = useState('');
-
       // ===== 설문조사 관련 상태 =====
       const [surveys, setSurveys] = useState([]);
       const [isSubmitted, setIsSubmitted] = useState(false);
       const [formData, setFormData] = useState({ name: '', nominee: '', reason: '' });
       const [surveyErrorMsg, setSurveyErrorMsg] = useState('');
       const oneRoleVoteMeta = getCurrentOneRoleVoteMeta();
-
       // ===== 추가 설문 게시판 관련 상태 =====
       const [surveyBoards, setSurveyBoards] = useState([]);
       const [surveyResponses, setSurveyResponses] = useState([]);
@@ -168,7 +180,6 @@
       const [surveyFeedbackMsg, setSurveyFeedbackMsg] = useState('');
       const [newSurveyForm, setNewSurveyForm] = useState({ title: '', description: '', question: '', isSecret: false });
       const [surveyAnswerForms, setSurveyAnswerForms] = useState({});
-
       // ===== 양자 대결 월드컵 설문 관련 상태 =====
       const [worldcupPolls, setWorldcupPolls] = useState([]);
       const [worldcupResponses, setWorldcupResponses] = useState([]);
@@ -188,14 +199,12 @@
       const [worldcupFeedbackMsg, setWorldcupFeedbackMsg] = useState('');
       const [worldcupTick, setWorldcupTick] = useState(Date.now());
       const worldcupAutoRevealRef = useRef({});
-
       // ===== 짝사진 희망 조사 관련 상태 =====
       const [pairPhotoRequests, setPairPhotoRequests] = useState([]);
       const [pairPhotoForm, setPairPhotoForm] = useState({ name: '', partners: [], memo: '' });
       const [pairPhotoSubmitted, setPairPhotoSubmitted] = useState(false);
       const [pairPhotoFeedbackMsg, setPairPhotoFeedbackMsg] = useState('');
       const [pairPhotoExportMsg, setPairPhotoExportMsg] = useState('');
-
       // ===== 포인트 뱅크 관련 상태 =====
       const [students, setStudents] = useState([]);
       const [transactions, setTransactions] = useState([]);
@@ -205,19 +214,16 @@
       const [pointModalTab, setPointModalTab] = useState('history');
       const [amount, setAmount] = useState('');
       const [desc, setDesc] = useState('');
-
       // ===== 일괄 포인트 지급 관련 상태 =====
       const [bulkOpen, setBulkOpen] = useState(false);
       const [bulkAmount, setBulkAmount] = useState('');
       const [bulkDesc, setBulkDesc] = useState('');
       const [bulkNames, setBulkNames] = useState('');
       const [bulkFeedbackMsg, setBulkFeedbackMsg] = useState(''); // 상태 메시지용
-
       // ===== 링크 모음 관련 상태 =====
       const [links, setLinks] = useState([]);
       const [linkTitle, setLinkTitle] = useState('');
       const [linkUrl, setLinkUrl] = useState('');
-
       // ===== 영상 갤러리 관련 상태 =====
       const [videos, setVideos] = useState([]);
       const [videoTitle, setVideoTitle] = useState('');
@@ -226,9 +232,7 @@
       const [videoLink, setVideoLink] = useState('');
       const [uploadProgress, setUploadProgress] = useState(0);
       const fileInputRef = useRef(null);
-
       // 학생 영상 제출은 기존 Google Apps Script/Drive 화면을 iframe으로 불러옵니다.
-
       // ===== Firebase 초기화 및 리스너 =====
       useEffect(() => {
         const initAuth = async () => {
@@ -240,17 +244,16 @@
             }
           } catch (err) {
             console.log("Firebase 익명 로그인 미설정 우회 접속:", err);
-            setUser({ uid: 'anonymous-google-sites-user' }); 
+            setUser({ uid: 'anonymous-google-sites-user' });
           }
         };
         initAuth();
         const unsubscribe = onAuthStateChanged(auth, (u) => { if (u) setUser(u); });
         return () => unsubscribe();
       }, []);
-
       useEffect(() => {
         if (!user || !db) return;
-        
+
         const surveyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveys') : collection(db, 'surveys');
         const surveyBoardsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveyBoards') : collection(db, 'surveyBoards');
         const surveyResponsesPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveyResponses') : collection(db, 'surveyResponses');
@@ -262,56 +265,49 @@
         const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
         const linksPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'links') : collection(db, 'links');
         const videosPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'videos') : collection(db, 'videos');
-        
+
         const unsubSurveys = onSnapshot(surveyPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setSurveys(data);
         });
-
         const unsubSurveyBoards = onSnapshot(surveyBoardsPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setSurveyBoards(data);
         });
-
         const unsubSurveyResponses = onSnapshot(surveyResponsesPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setSurveyResponses(data);
         });
-
         const unsubWorldcupPolls = onSnapshot(worldcupPollsPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setWorldcupPolls(data);
         });
-
         const unsubWorldcupResponses = onSnapshot(worldcupResponsesPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setWorldcupResponses(data);
         });
-
         const unsubWorldcupLiveVotes = onSnapshot(worldcupLiveVotesPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setWorldcupLiveVotes(data);
         });
-
         const unsubPairPhotoRequests = onSnapshot(pairPhotoRequestsPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
           setPairPhotoRequests(data);
         });
-
         const unsubStudents = onSnapshot(studentsPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
@@ -322,36 +318,30 @@
             return updated || prev;
           });
         });
-
         const unsubHistory = onSnapshot(historyPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setTransactions(data);
         });
-
         const unsubLinks = onSnapshot(linksPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setLinks(data);
         });
-
         const unsubVideos = onSnapshot(videosPath, (snapshot) => {
           const data = [];
           snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setVideos(data);
         });
-
         return () => { unsubSurveys(); unsubSurveyBoards(); unsubSurveyResponses(); unsubWorldcupPolls(); unsubWorldcupResponses(); unsubWorldcupLiveVotes(); unsubPairPhotoRequests(); unsubStudents(); unsubHistory(); unsubLinks(); unsubVideos(); };
       }, [user]);
-
       useEffect(() => {
         const timer = setInterval(() => setWorldcupTick(Date.now()), 1000);
         return () => clearInterval(timer);
       }, []);
-
       useEffect(() => {
         if (!isTeacher || isProcessing) return;
         worldcupPolls.forEach((poll) => {
@@ -362,7 +352,6 @@
           }
         });
       }, [worldcupTick, isTeacher, isProcessing, worldcupPolls, worldcupLiveVotes]);
-
       // ===== 하이클래스 코드 복사 기능 =====
       const handleCopy = () => {
         const textArea = document.createElement("textarea");
@@ -372,7 +361,6 @@
         try { document.execCommand('copy'); setCopySuccess(true); setTimeout(() => setCopySuccess(false), 3000); } catch (err) {}
         document.body.removeChild(textArea);
       };
-
       // ===== 선생님 로그인 기능 =====
       const handleTeacherLogin = (e) => {
         e.preventDefault();
@@ -385,7 +373,6 @@
           setTeacherError('비밀번호가 틀렸습니다.');
         }
       };
-
       // ---------------- [1. 포인트 뱅크 로직] ----------------
       const handleInitializeClass = async () => {
         if (students.length > 0) return;
@@ -400,87 +387,69 @@
         }
         setIsProcessing(false);
       };
-
       const handleTransaction = async (type, customAmount = amount, customDesc = desc) => {
         if (!selectedStudent || isProcessing) return;
         const parsedAmount = parseInt(customAmount, 10);
-        
-        if (isNaN(parsedAmount) || parsedAmount <= 0) return; 
-        if (!customDesc.trim()) return; 
 
+        if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+        if (!customDesc.trim()) return;
         const currentRemaining = selectedStudent.remaining || 0;
-        if (type === 'spend' && currentRemaining < parsedAmount) return; 
-
+        if (type === 'spend' && currentRemaining < parsedAmount) return;
         setIsProcessing(true);
         try {
           const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
           const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', selectedStudent.id) : doc(db, 'students', selectedStudent.id);
-
           await addDoc(historyPath, { studentId: selectedStudent.id, studentName: selectedStudent.name, type: type, amount: parsedAmount, description: customDesc.trim(), timestamp: Date.now() });
-
           let newRemaining = selectedStudent.remaining || 0;
           let newCumulative = selectedStudent.cumulative || 0;
-          
-          if (type === 'earn') { newRemaining += parsedAmount; newCumulative += parsedAmount; } 
+
+          if (type === 'earn') { newRemaining += parsedAmount; newCumulative += parsedAmount; }
           else { newRemaining -= parsedAmount; }
-
           await updateDoc(studentDocRef, { remaining: newRemaining, cumulative: newCumulative });
-
           setAmount(''); setDesc('');
           if (customDesc.includes("뽑기")) setPointModalTab('history');
-          
+
         } catch (error) {
           console.error(error);
         }
         setIsProcessing(false);
       };
-
       const handleCancelTransaction = async (transaction) => {
         if (!isTeacher || !selectedStudent || isProcessing) return;
-
         const targetStudent = students.find(s => s.id === transaction.studentId);
         if (!targetStudent) return;
-
         setIsProcessing(true);
         try {
           const historyDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'transactions', transaction.id) : doc(db, 'transactions', transaction.id);
           const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', targetStudent.id) : doc(db, 'students', targetStudent.id);
-
           let newRemaining = targetStudent.remaining || 0;
           let newCumulative = targetStudent.cumulative || 0;
           const cancelAmount = Number(transaction.amount || 0);
-
           if (transaction.type === 'earn') {
             newRemaining = Math.max(0, newRemaining - cancelAmount);
             newCumulative = Math.max(0, newCumulative - cancelAmount);
           } else {
             newRemaining += cancelAmount;
           }
-
           await updateDoc(studentDocRef, {
             remaining: newRemaining,
             cumulative: newCumulative
           });
-
           await deleteDoc(historyDocRef);
         } catch (error) {
           console.error(error);
         }
         setIsProcessing(false);
       };
-
       const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
       const getNamesByGender = (gender) => {
         return students.filter(s => !gender || s.gender === gender).sort((a, b) => a.name.localeCompare(b.name)).map(s => s.name).join(', ');
       };
-
       const handleBulkEarnByNames = async () => {
         if (isProcessing) return;
         const parsedAmount = parseInt(bulkAmount, 10);
         const cleanDesc = String(bulkDesc || '').trim();
         const names = String(bulkNames || '').split(/[\n,]+/).map(name => name.trim()).filter(Boolean);
-
         if (isNaN(parsedAmount) || parsedAmount <= 0) {
           setBulkFeedbackMsg('올바른 포인트를 입력해주세요.'); return;
         }
@@ -490,35 +459,26 @@
         if (names.length === 0) {
           setBulkFeedbackMsg('지급할 학생 이름을 입력해주세요.'); return;
         }
-
         const missingNames = names.filter(name => !students.some(s => s.name === name));
         if (missingNames.length > 0) {
           setBulkFeedbackMsg('명렬표에 없는 이름: ' + missingNames.join(', ')); return;
         }
-
         setIsProcessing(true);
         setBulkFeedbackMsg('일괄 지급을 진행 중입니다...');
         let successCount = 0;
         try {
           const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
-
           for (const name of names) {
             const student = students.find(s => s.name === name);
             if (!student) continue;
-
             const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', student.id) : doc(db, 'students', student.id);
-
             const newRemaining = (student.remaining || 0) + parsedAmount;
             const newCumulative = (student.cumulative || 0) + parsedAmount;
-
             await updateDoc(studentDocRef, { remaining: newRemaining, cumulative: newCumulative });
-
             await addDoc(historyPath, { studentId: student.id, studentName: student.name, type: 'earn', amount: parsedAmount, description: cleanDesc, timestamp: Date.now() });
-
             successCount += 1;
             await delay(250);
           }
-
           setBulkFeedbackMsg('');
           setBulkAmount(''); setBulkDesc(''); setBulkNames(''); setBulkOpen(false);
         } catch (error) {
@@ -527,52 +487,43 @@
         }
         setIsProcessing(false);
       };
-
       const filteredAndSortedStudents = [...students].filter(s => s.name.includes(searchTerm)).sort((a, b) => {
         if (sortBy === 'remaining') return (b.remaining || 0) - (a.remaining || 0);
         if (sortBy === 'cumulative') return (b.cumulative || 0) - (a.cumulative || 0);
         return a.name.localeCompare(b.name);
       });
-
       const openStudentModal = (student) => {
         setSelectedStudent(student);
         setPointModalTab(isTeacher ? 'earn' : 'history');
       };
-
       const closeModal = () => {
         setSelectedStudent(null);
         setPointModalTab('history');
         setAmount(''); setDesc('');
       };
-
       // ---------------- [2. 영상 업로드 및 관리 로직] ----------------
       const handleVideoUpload = async (e) => {
         e.preventDefault();
         if (!videoTitle.trim()) return;
-        
-        setIsProcessing(true); setUploadProgress(0);
 
+        setIsProcessing(true); setUploadProgress(0);
         try {
           const videosPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'videos') : collection(db, 'videos');
-
           if (uploadType === 'link') {
             if (!videoLink.trim()) { setIsProcessing(false); return; }
-            
+
             let finalUrl = videoLink;
             let videoFormat = 'link';
-            
-            const ytMatch = videoLink.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-            if (ytMatch) { finalUrl = `https://www.youtube.com/embed/${ytMatch[1]}`; videoFormat = 'youtube'; } 
-            else if (!/^https?:\/\//i.test(finalUrl)) { finalUrl = 'https://' + finalUrl; }
 
+            const ytMatch = videoLink.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+            if (ytMatch) { finalUrl = `https://www.youtube.com/embed/${ytMatch[1]}`; videoFormat = 'youtube'; }
+            else if (!/^https?:\/\//i.test(finalUrl)) { finalUrl = 'https://' + finalUrl; }
             await addDoc(videosPath, { title: videoTitle, url: finalUrl, type: videoFormat, timestamp: Date.now() });
             resetVideoForm();
           } else {
             if (!videoFile || videoFile.size > 50 * 1024 * 1024) { setIsProcessing(false); return; }
-
             const storageRef = ref(storage, `artifacts/${appId}/public/videos/${Date.now()}_${videoFile.name}`);
             const uploadTask = uploadBytesResumable(storageRef, videoFile);
-
             uploadTask.on('state_changed',
               (snapshot) => { setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100); },
               (error) => { console.error("업로드 에러:", error); setIsProcessing(false); },
@@ -587,12 +538,10 @@
         } catch (error) { console.error(error); }
         if (uploadType === 'link') setIsProcessing(false);
       };
-
       const resetVideoForm = () => {
         setVideoTitle(''); setVideoLink(''); setVideoFile(null); setUploadProgress(0); setIsProcessing(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
       };
-
       const handleDeleteVideo = async (video) => {
         try {
           if (video.type === 'file' && video.storagePath) {
@@ -603,11 +552,9 @@
           await deleteDoc(videoDocRef);
         } catch (error) { console.error(error); }
       };
-
       // ---------------- [2-1. 학생 영상 제출함] ----------------
-      // 분리 전 정상 동작하던 Google Apps Script 웹앱의 mode=videos 화면을 그대로 사용합니다.
+      // 기존 Google Apps Script 웹앱의 제출 화면을 그대로 사용합니다.
       // 파일과 제출 기록은 Firebase Storage가 아니라 선생님 Google Drive에 저장됩니다.
-
       // ---------------- [3. 학급 링크 로직] ----------------
       const handleAddLink = async (e) => {
         e.preventDefault();
@@ -622,14 +569,12 @@
         } catch (error) { console.error(error); }
         setIsProcessing(false);
       };
-
       const handleDeleteLink = async (id) => {
         try {
           const linkDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'links', id) : doc(db, 'links', id);
           await deleteDoc(linkDocRef);
         } catch (error) { console.error(error); }
       };
-
       // ---------------- [4. 설문조사 투표 로직] ----------------
       const handleSurveySubmit = async (e) => {
         e.preventDefault();
@@ -637,7 +582,6 @@
         const name = String(formData.name || '').trim();
         const nominee = String(formData.nominee || '').trim();
         const reason = String(formData.reason || '').trim();
-
         setSurveyErrorMsg('');
         if (!name || !nominee || !reason) {
           setSurveyErrorMsg('내 이름, 추천할 친구, 추천 이유를 모두 입력해주세요.');
@@ -655,7 +599,6 @@
           setSurveyErrorMsg('추천할 친구는 명렬표에서 선택해주세요.');
           return;
         }
-
         setIsProcessing(true);
         try {
           const surveyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'surveys') : collection(db, 'surveys');
@@ -678,7 +621,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleResetCurrentOneRoleVote = async () => {
         if (!isTeacher || isProcessing) return;
         const targets = getCurrentOneRoleSurveys();
@@ -689,7 +631,6 @@
         }
         const ok = window.confirm(`${oneRoleVoteMeta.title} 응답 ${targets.length}건을 모두 삭제할까요? 회색 기존 기록 항목은 삭제하지 않습니다.`);
         if (!ok) return;
-
         setIsProcessing(true);
         setSurveyFeedbackMsg('이번 달 1인 1역 재투표 응답을 삭제하는 중입니다...');
         try {
@@ -707,7 +648,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleCreateSurveyBoard = async (e) => {
         e.preventDefault();
         if (isProcessing || !isTeacher) return;
@@ -741,14 +681,12 @@
         }
         setIsProcessing(false);
       };
-
       const updateSurveyAnswerForm = (surveyId, field, value) => {
         setSurveyAnswerForms(prev => ({
           ...prev,
           [surveyId]: { ...(prev[surveyId] || {}), [field]: value }
         }));
       };
-
       const handleSubmitSurveyBoardResponse = async (e, surveyBoard) => {
         e.preventDefault();
         if (isProcessing) return;
@@ -785,7 +723,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleDeleteSurveyBoard = async (surveyBoard) => {
         if (!isTeacher || isProcessing) return;
         setIsProcessing(true);
@@ -801,7 +738,6 @@
         }
         setIsProcessing(false);
       };
-
       const splitWorldcupCandidates = (rawText) => {
         const seen = {};
         return String(rawText || '')
@@ -814,49 +750,40 @@
             return true;
           });
       };
-
       const WORLD_CUP_ACTIVITY_PRESET = [
         '보드게임 시간', '운동장 놀이', '영화 보기', '음악 듣기', '그림 그리기', '퀴즈 대회', '체육관 놀이', '독서 시간',
         '과학 실험', '사진 찍기', '마니또 활동', '반 대항 게임', '간식 파티', '수다 시간', '릴스 만들기', '노래방 놀이',
         '축구', '피구', '농구', '배드민턴', '술래잡기', '이어달리기', '방탈출 퀴즈', '마피아 게임',
         '빙고 게임', '그림 이어그리기', '책상 게임', '칠판 게임', '운동장 산책', '단체 사진', '팀 미션', '자유시간'
       ];
-
       const WORLD_CUP_BRACKET_OPTIONS = [8, 16, 32];
-
       const getRosterWorldcupCandidates = () => classRoster.map(student => student.name);
-
       const getNumberedWorldcupCandidates = (countValue = 32) => {
         const parsed = parseInt(countValue, 10);
         const count = Math.min(64, Math.max(2, isNaN(parsed) ? 32 : parsed));
         return Array.from({ length: count }, (_, index) => `${index + 1}선택지`);
       };
-
       const getWorldcupCandidatesFromForm = (form = newWorldcupForm) => {
         if (form.candidateSource === 'manual') return splitWorldcupCandidates(form.candidates);
         if (form.candidateSource === 'activity32') return WORLD_CUP_ACTIVITY_PRESET;
         if (form.candidateSource === 'numbered') return getNumberedWorldcupCandidates(form.bracketSize || 32);
         return getRosterWorldcupCandidates();
       };
-
       const getWorldcupCandidateSourceLabel = (source) => {
         if (source === 'numbered') return '번호 선택지 자동';
         if (source === 'activity32') return '기본 활동 32개';
         if (source === 'manual') return '직접 입력';
         return '명렬표 자동';
       };
-
       const sanitizeWorldcupBracketSize = (value) => {
         const parsed = parseInt(value, 10);
         if (isNaN(parsed)) return 32;
         return Math.min(64, Math.max(2, parsed));
       };
-
       const getNearestWorldcupBracketSize = (count) => {
         const safeCount = Math.max(2, parseInt(count, 10) || 2);
         return [2, 4, 8, 16, 32, 64].find(size => size >= safeCount) || 64;
       };
-
       const getWorldcupBracketSize = (poll) => {
         if (poll?.bracketSize) return sanitizeWorldcupBracketSize(poll.bracketSize);
         const candidates = Array.isArray(poll?.candidates) ? poll.candidates.filter(Boolean) : [];
@@ -864,14 +791,12 @@
         const expectedCandidateCount = !isNaN(parsedLimit) ? parsedLimit + 1 : candidates.length;
         return getNearestWorldcupBracketSize(expectedCandidateCount || candidates.length || 32);
       };
-
       const getEffectiveWorldcupBracketSize = (selectedBracketSize, candidateCount) => {
         let size = sanitizeWorldcupBracketSize(selectedBracketSize);
         const count = Math.max(2, parseInt(candidateCount, 10) || 2);
         while (size > 2 && count <= size / 2) size = size / 2;
         return size;
       };
-
       const shuffleArray = (items) => {
         const arr = [...items];
         for (let i = arr.length - 1; i > 0; i--) {
@@ -880,13 +805,11 @@
         }
         return arr;
       };
-
       const buildWorldcupOpeningRound = (candidates, bracketSize) => {
         const cleanCandidates = splitWorldcupCandidates((candidates || []).join('\n')).slice(0, sanitizeWorldcupBracketSize(bracketSize));
         // 후보 순서를 섞지 않습니다. 1번 vs 2번, 3번 vs 4번처럼 입력/자동 후보 순서 그대로 대결합니다.
         const selectedCandidates = cleanCandidates;
         const effectiveBracketSize = getEffectiveWorldcupBracketSize(bracketSize, selectedCandidates.length);
-
         if (selectedCandidates.length >= effectiveBracketSize) {
           return {
             currentPool: selectedCandidates.slice(0, effectiveBracketSize),
@@ -895,17 +818,14 @@
             effectiveBracketSize
           };
         }
-
         const secondRoundSize = Math.max(1, effectiveBracketSize / 2);
         const realMatchCount = Math.max(0, selectedCandidates.length - secondRoundSize);
         const realMatchCandidates = selectedCandidates.slice(0, realMatchCount * 2);
         const byeCandidates = selectedCandidates.slice(realMatchCount * 2);
         const matchPairs = [];
-
         for (let i = 0; i < realMatchCandidates.length; i += 2) {
           matchPairs.push([realMatchCandidates[i], realMatchCandidates[i + 1]]);
         }
-
         return {
           currentPool: matchPairs.flat(),
           nextRound: byeCandidates,
@@ -913,23 +833,19 @@
           effectiveBracketSize
         };
       };
-
       const normalizeWorldcupSession = (session) => {
         let currentPool = [...(session.currentPool || [])];
         let nextRound = [...(session.nextRound || [])];
         let currentRound = session.currentRound || 1;
         let currentBracketSize = session.currentBracketSize || session.bracketSize || 32;
         let champion = session.champion || null;
-
         while (!champion) {
           if (currentPool.length === 0 && nextRound.length === 0) break;
-
           if (currentPool.length === 1 && nextRound.length === 0) {
             champion = currentPool[0];
             currentPool = [];
             break;
           }
-
           if (currentPool.length < 2) {
             if (currentPool.length === 1) nextRound.push(currentPool[0]);
             if (nextRound.length === 1) {
@@ -944,13 +860,10 @@
             currentBracketSize = Math.max(2, Math.floor(currentBracketSize / 2));
             continue;
           }
-
           break;
         }
-
         return { ...session, currentPool, nextRound, currentRound, currentBracketSize, champion };
       };
-
       const getWorldcupRoundLabel = (sessionOrSize) => {
         if (typeof sessionOrSize === 'number') {
           if (sessionOrSize <= 2) return '결승';
@@ -963,19 +876,16 @@
         if (size <= 2) return '결승';
         return `${size}강`;
       };
-
       const getWorldcupCandidateOrderLabel = (session, candidate) => {
         if (!session || !candidate) return '';
         const index = (session.selectedCandidates || []).findIndex(item => item === candidate);
         return index >= 0 ? `${index + 1}번` : '';
       };
-
       const getWorldcupExpectedMatches = (poll) => {
         const candidates = Array.isArray(poll.candidates) ? poll.candidates.filter(Boolean) : [];
         const selectedCount = Math.min(candidates.length, getWorldcupBracketSize(poll));
         return Math.max(0, selectedCount - 1);
       };
-
       const handleCreateWorldcupPoll = async (e) => {
         e.preventDefault();
         if (isProcessing || !isTeacher) return;
@@ -988,12 +898,10 @@
         const candidates = getWorldcupCandidatesFromForm({ ...newWorldcupForm, candidateSource });
         const selectedCount = Math.min(candidates.length, bracketSize);
         const matchLimit = Math.max(1, selectedCount - 1);
-
         if (!title || candidates.length < 2) {
           setWorldcupFeedbackMsg('월드컵 제목과 후보 2개 이상은 꼭 필요합니다. 기본은 번호 선택지가 자동으로 들어갑니다.');
           return;
         }
-
         setIsProcessing(true);
         setWorldcupFeedbackMsg('카훗식 실시간 월드컵을 만드는 중입니다...');
         try {
@@ -1044,7 +952,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleDeleteWorldcupPoll = async (poll) => {
         if (!isTeacher || isProcessing) return;
         setIsProcessing(true);
@@ -1060,20 +967,17 @@
         }
         setIsProcessing(false);
       };
-
       const updateWorldcupAnswerForm = (pollId, field, value) => {
         setWorldcupAnswerForms(prev => ({
           ...prev,
           [pollId]: { ...(prev[pollId] || {}), [field]: value }
         }));
       };
-
       const startWorldcupSession = (poll) => {
         const answerForm = worldcupAnswerForms[poll.id] || {};
         const name = String(answerForm.name || '').trim();
         let candidates = Array.isArray(poll.candidates) ? splitWorldcupCandidates(poll.candidates.join('\n')) : [];
         const bracketSize = getWorldcupBracketSize(poll);
-
         if (!name) {
           setWorldcupFeedbackMsg('월드컵 참여 전 내 이름을 선택해주세요.');
           return;
@@ -1085,7 +989,6 @@
           setWorldcupFeedbackMsg('내 이름을 제외한 후보가 2개 이상 있어야 월드컵을 시작할 수 있습니다.');
           return;
         }
-
         const openingRound = buildWorldcupOpeningRound(candidates, bracketSize);
         const totalMatches = Math.max(1, openingRound.selectedCandidates.length - 1);
         const session = normalizeWorldcupSession({
@@ -1108,12 +1011,10 @@
         setWorldcupSessions(prev => ({ ...prev, [poll.id]: session }));
         setWorldcupFeedbackMsg('');
       };
-
       const handleWorldcupChoice = (poll, winner) => {
         setWorldcupSessions(prev => {
           const session = prev[poll.id];
           if (!session || session.champion || (session.currentPool || []).length < 2 || !winner) return prev;
-
           const left = session.currentPool[0];
           const right = session.currentPool[1];
           const loser = winner === left ? right : left;
@@ -1137,11 +1038,9 @@
               }
             ]
           });
-
           return { ...prev, [poll.id]: nextSession };
         });
       };
-
       const resetWorldcupSession = (pollId) => {
         setWorldcupSessions(prev => {
           const next = { ...prev };
@@ -1149,12 +1048,10 @@
           return next;
         });
       };
-
       const handleSubmitWorldcupResponse = async (poll) => {
         if (isProcessing) return;
         const session = worldcupSessions[poll.id];
         if (!session || !session.champion) return;
-
         setIsProcessing(true);
         setWorldcupFeedbackMsg('월드컵 결과를 저장하는 중입니다...');
         try {
@@ -1182,9 +1079,7 @@
         }
         setIsProcessing(false);
       };
-
       const getWorldcupResponsesForPoll = (pollId) => worldcupResponses.filter(response => response.pollId === pollId);
-
       const getWorldcupChampionCounts = (pollId) => {
         const counts = {};
         getWorldcupResponsesForPoll(pollId).forEach(response => {
@@ -1193,7 +1088,6 @@
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1]);
       };
-
       const getWorldcupPickCounts = (pollId) => {
         const counts = {};
         getWorldcupResponsesForPoll(pollId).forEach(response => {
@@ -1204,46 +1098,38 @@
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1]);
       };
-
       const sanitizeWorldcupTimeLimit = (value) => {
         const parsed = parseInt(value, 10);
         if (isNaN(parsed)) return 20;
         return Math.min(120, Math.max(5, parsed));
       };
-
       const sanitizeWorldcupRankingTarget = (value) => {
         const parsed = parseInt(value, 10);
         if ([1, 2, 4].includes(parsed)) return parsed;
         return 1;
       };
-
       const getWorldcupRankingTargetLabel = (value) => {
         const target = sanitizeWorldcupRankingTarget(value);
         if (target === 4) return 'Top4 순위';
         if (target === 2) return '1·2위';
         return '우승만';
       };
-
       const getWorldcupNextPowerOfTwo = (count) => {
         let size = 2;
         const safeCount = Math.max(2, parseInt(count, 10) || 2);
         while (size < safeCount) size *= 2;
         return Math.min(64, size);
       };
-
       const getWorldcupLiveCandidates = (poll) => {
         const candidates = Array.isArray(poll?.candidates) ? splitWorldcupCandidates(poll.candidates.join('\n')) : [];
         const target = Math.min(candidates.length, sanitizeWorldcupBracketSize(poll?.bracketSize || candidates.length || 32));
         return candidates.slice(0, target);
       };
-
       const getWorldcupLiveSlotSize = (poll) => getWorldcupNextPowerOfTwo(getWorldcupLiveCandidates(poll).length);
-
       const getWorldcupLiveByeCount = (poll) => {
         const candidates = getWorldcupLiveCandidates(poll);
         return Math.max(0, getWorldcupLiveSlotSize(poll) - candidates.length);
       };
-
       const buildWorldcupLiveOpeningState = (poll) => {
         const selectedCandidates = getWorldcupLiveCandidates(poll);
         const slotSize = getWorldcupNextPowerOfTwo(selectedCandidates.length);
@@ -1266,14 +1152,12 @@
           stage: 'main'
         };
       };
-
       const getWorldcupLiveRoundLabel = (pollOrRoundSize, stage = 'main') => {
         if (stage === 'thirdPlace') return '3·4위전';
         const size = typeof pollOrRoundSize === 'number' ? pollOrRoundSize : Number(pollOrRoundSize?.liveRoundSize || pollOrRoundSize?.liveSlotSize || 32);
         if (size <= 2) return '결승';
         return `${size}강`;
       };
-
       const makeWorldcupLiveRankings = (state, poll) => {
         const target = sanitizeWorldcupRankingTarget(state.rankingTarget || poll?.liveRankingTarget || poll?.rankingTarget || 1);
         const champion = state.champion || poll?.liveChampion || '';
@@ -1293,9 +1177,7 @@
         }
         return rankings.slice(0, target);
       };
-
       const getWorldcupPollDocRef = (pollId) => isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'worldcupPolls', pollId) : doc(db, 'worldcupPolls', pollId);
-
       const prepareNextWorldcupLiveMatchPatch = (poll, state) => {
         const now = Date.now();
         const timeLimitSec = sanitizeWorldcupTimeLimit(state.timeLimitSec || poll.liveTimeLimitSec || poll.timeLimitSec || 20);
@@ -1310,7 +1192,6 @@
         let semiLosers = [...(state.semiLosers || [])];
         let thirdPlaceDone = !!state.thirdPlaceDone;
         let rankings = [...(state.rankings || [])];
-
         if (stage === 'main') {
           while (!champion && currentPool.length < 2) {
             if (currentPool.length === 1) nextRound.push(currentPool[0]);
@@ -1327,7 +1208,6 @@
             roundSize = Math.max(2, Math.floor(roundSize / 2));
           }
         }
-
         if (champion) {
           if (rankingTarget >= 4 && semiLosers.length >= 2 && !thirdPlaceDone) {
             stage = 'thirdPlace';
@@ -1358,7 +1238,6 @@
             };
           }
         }
-
         if (stage === 'thirdPlace' && currentPool.length < 2) {
           rankings = makeWorldcupLiveRankings({ champion, finalLoser, semiLosers, rankings, rankingTarget, thirdPlaceDone, thirdWinner: state.thirdWinner, thirdLoser: state.thirdLoser }, poll);
           return {
@@ -1381,7 +1260,6 @@
             liveUpdatedAt: now
           };
         }
-
         const matchId = `${poll.id}_${now}_${Math.random().toString(36).slice(2, 8)}`;
         return {
           liveMode: true,
@@ -1402,7 +1280,6 @@
           liveUpdatedAt: now
         };
       };
-
       const handleStartWorldcupLiveTournament = async (poll) => {
         if (!isTeacher || isProcessing) return;
         const selectedCandidates = getWorldcupLiveCandidates(poll);
@@ -1445,12 +1322,10 @@
         }
         setIsProcessing(false);
       };
-
       const getWorldcupLiveRemainingSec = (poll) => {
         if (!poll?.liveEndedAt || poll.liveStatus !== 'voting') return 0;
         return Math.max(0, Math.ceil((Number(poll.liveEndedAt) - worldcupTick) / 1000));
       };
-
       const getWorldcupLiveVotesForMatch = (pollId, matchId) => {
         if (!matchId) return [];
         const latestByUser = {};
@@ -1463,12 +1338,10 @@
           });
         return Object.values(latestByUser);
       };
-
       const getMyWorldcupLiveVote = (poll) => {
         const uid = user?.uid || 'anonymous';
         return getWorldcupLiveVotesForMatch(poll.id, poll.liveMatchId).find(vote => (vote.userId || vote.uid) === uid) || null;
       };
-
       const getWorldcupLiveMatchCounts = (poll) => {
         const votes = getWorldcupLiveVotesForMatch(poll.id, poll.liveMatchId);
         const left = poll.liveLeft;
@@ -1477,7 +1350,6 @@
         const rightCount = votes.filter(vote => vote.choice === 'right' || vote.winner === right).length;
         return { votes, leftCount, rightCount, total: votes.length };
       };
-
       const handleSubmitWorldcupLiveVote = async (poll, choice) => {
         if (isProcessing) return;
         if (!poll.liveMatchId || poll.liveStatus !== 'voting') return;
@@ -1514,7 +1386,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleRevealWorldcupLiveMatch = async (poll, forcedWinner = '') => {
         if (!isTeacher || isProcessing) return;
         if (!poll.liveMatchId || !['voting', 'revealed'].includes(poll.liveStatus)) return;
@@ -1552,7 +1423,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleAdvanceWorldcupLiveMatch = async (poll) => {
         if (!isTeacher || isProcessing) return;
         const result = poll.liveResult || {};
@@ -1591,7 +1461,6 @@
           let roundSize = poll.liveRoundSize || getWorldcupLiveSlotSize(poll);
           let stage = poll.liveStage || 'main';
           const rankingTarget = sanitizeWorldcupRankingTarget(poll.liveRankingTarget || 1);
-
           if (stage === 'thirdPlace') {
             thirdWinner = result.winner;
             thirdLoser = result.loser;
@@ -1608,7 +1477,6 @@
               nextRound = [];
             }
           }
-
           const baseState = {
             currentPool,
             nextRound,
@@ -1647,7 +1515,6 @@
         }
         setIsProcessing(false);
       };
-
       const handleResetWorldcupLiveTournament = async (poll) => {
         if (!isTeacher || isProcessing) return;
         setIsProcessing(true);
@@ -1685,9 +1552,7 @@
         }
         setIsProcessing(false);
       };
-
       const getWorldcupLiveResultPercent = (count, total) => total > 0 ? Math.round((count / total) * 100) : 0;
-
       const getWorldcupLiveDisplayRankings = (poll) => {
         if (Array.isArray(poll.liveRankings) && poll.liveRankings.length > 0) return poll.liveRankings;
         return makeWorldcupLiveRankings({
@@ -1700,7 +1565,6 @@
           thirdPlaceDone: poll.liveThirdPlaceDone
         }, poll);
       };
-
       const getWorldcupLiveProgressLabel = (poll) => {
         const historyCount = (poll.liveHistory || []).length;
         const targetCount = poll.liveTargetCount || getWorldcupLiveCandidates(poll).length;
@@ -1709,7 +1573,6 @@
         const total = mainTotal + extra;
         return `${Math.min(historyCount + (poll.liveStatus === 'voting' || poll.liveStatus === 'revealed' ? 1 : 0), total)} / ${total}`;
       };
-
       const togglePairPhotoPartner = (partnerName) => {
         if (!partnerName || partnerName === pairPhotoForm.name) return;
         const selected = pairPhotoForm.partners || [];
@@ -1724,14 +1587,12 @@
         }
         setPairPhotoForm(prev => ({ ...prev, partners: [...selected, partnerName] }));
       };
-
       const handlePairPhotoSubmit = async (e) => {
         e.preventDefault();
         if (isProcessing) return;
         const name = String(pairPhotoForm.name || '').trim();
         const partners = [...new Set((pairPhotoForm.partners || []).filter(partner => partner && partner !== name))].slice(0, 2);
         const memo = String(pairPhotoForm.memo || '').trim();
-
         if (!name) {
           setPairPhotoFeedbackMsg('내 이름을 선택해주세요.');
           return;
@@ -1740,7 +1601,6 @@
           setPairPhotoFeedbackMsg('같이 찍고 싶은 친구를 1명 이상 선택해주세요.');
           return;
         }
-
         setIsProcessing(true);
         setPairPhotoFeedbackMsg('짝사진 희망 명단을 저장하는 중입니다...');
         try {
@@ -1762,7 +1622,6 @@
         }
         setIsProcessing(false);
       };
-
       const getLatestPairPhotoRequests = () => {
         const latestByName = {};
         [...pairPhotoRequests]
@@ -1773,7 +1632,6 @@
           });
         return Object.values(latestByName).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       };
-
       const getPairPhotoPartners = (request) => {
         const requester = String(request?.name || '').trim();
         return [...new Set((request?.partners || [])
@@ -1781,7 +1639,6 @@
           .filter(partner => partner && partner !== requester))]
           .slice(0, 2);
       };
-
       const getPairPhotoCounts = () => {
         const counts = {};
         getLatestPairPhotoRequests().forEach(request => {
@@ -1791,7 +1648,6 @@
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       };
-
       const getPairPhotoMutualPairs = () => {
         const latest = getLatestPairPhotoRequests();
         const latestByName = {};
@@ -1809,7 +1665,6 @@
         });
         return Object.values(pairs).sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
       };
-
       const formatPairPhotoDateTime = (timestamp) => {
         if (!timestamp) return '';
         try {
@@ -1821,7 +1676,6 @@
           return '';
         }
       };
-
       const getPairPhotoSheetTable = () => {
         const latest = getLatestPairPhotoRequests();
         const latestByName = {};
@@ -1847,16 +1701,13 @@
         });
         return { headers, rows };
       };
-
       const cleanSheetCell = (value) => String(value ?? '').replace(/\r?\n/g, ' ').trim();
-
       const convertRowsToTsv = (headers, rows) => {
         return [
           headers.join('\t'),
           ...rows.map(row => headers.map(header => cleanSheetCell(row[header])).join('\t'))
         ].join('\n');
       };
-
       const convertRowsToCsv = (headers, rows) => {
         const escapeCsv = (value) => `"${cleanSheetCell(value).replace(/"/g, '""')}"`;
         return [
@@ -1864,7 +1715,6 @@
           ...rows.map(row => headers.map(header => escapeCsv(row[header])).join(','))
         ].join('\n');
       };
-
       const copyTextForSheet = async (text) => {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(text);
@@ -1881,7 +1731,6 @@
         document.body.removeChild(textArea);
         return ok;
       };
-
       const getLatestWorldcupResponsesByName = (pollId) => {
         const latestByName = {};
         getWorldcupResponsesForPoll(pollId)
@@ -1892,7 +1741,6 @@
           });
         return latestByName;
       };
-
       const getWorldcupSheetTable = (poll) => {
         const candidates = getWorldcupLiveCandidates(poll);
         const rankings = getWorldcupLiveDisplayRankings(poll);
@@ -1913,7 +1761,6 @@
         ];
         return { headers, rows };
       };
-
       const handleCopyWorldcupSheet = async (poll) => {
         const { headers, rows } = getWorldcupSheetTable(poll);
         try {
@@ -1925,10 +1772,9 @@
         }
         setTimeout(() => setWorldcupFeedbackMsg(''), 3500);
       };
-
       const handleDownloadWorldcupCsv = (poll) => {
         const { headers, rows } = getWorldcupSheetTable(poll);
-        const csv = '\ufeff' + convertRowsToCsv(headers, rows);
+        const csv = '﻿' + convertRowsToCsv(headers, rows);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1942,7 +1788,6 @@
         setWorldcupFeedbackMsg('월드컵 결과 CSV 파일을 내려받았습니다.');
         setTimeout(() => setWorldcupFeedbackMsg(''), 3500);
       };
-
       const handleCopyPairPhotoSheet = async () => {
         const { headers, rows } = getPairPhotoSheetTable();
         try {
@@ -1954,10 +1799,9 @@
         }
         setTimeout(() => setPairPhotoExportMsg(''), 3500);
       };
-
       const handleDownloadPairPhotoCsv = () => {
         const { headers, rows } = getPairPhotoSheetTable();
-        const csvText = '\uFEFF' + convertRowsToCsv(headers, rows);
+        const csvText = '﻿' + convertRowsToCsv(headers, rows);
         const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1970,13 +1814,9 @@
         setPairPhotoExportMsg('CSV 파일을 내려받았습니다. 구글시트나 엑셀에서 열 수 있습니다.');
         setTimeout(() => setPairPhotoExportMsg(''), 3500);
       };
-
       const getResponsesForSurvey = (surveyId) => surveyResponses.filter(response => response.surveyId === surveyId);
-
       const getCurrentOneRoleSurveys = () => surveys.filter(survey => survey.voteId === oneRoleVoteMeta.voteId);
-
       const getLegacyOneRoleSurveys = () => surveys.filter(survey => !survey.voteId);
-
       const getLegacyOneRoleVoteCounts = () => {
         const counts = {};
         getLegacyOneRoleSurveys().forEach(survey => {
@@ -1985,7 +1825,6 @@
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       };
-
       const getLatestOneRoleSurveysByName = () => {
         const latestByName = {};
         [...getCurrentOneRoleSurveys()]
@@ -1996,7 +1835,6 @@
           });
         return Object.values(latestByName).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       };
-
       const getVoteCounts = () => {
         const counts = {};
         getLatestOneRoleSurveysByName().forEach(s => {
@@ -2005,7 +1843,6 @@
         });
         return Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       };
-
       const getOneRoleSheetTable = () => {
         const latestByName = {};
         getLatestOneRoleSurveysByName().forEach(response => { latestByName[response.name] = response; });
@@ -2024,7 +1861,6 @@
         });
         return { headers, rows };
       };
-
       const handleCopyOneRoleSheet = async () => {
         const { headers, rows } = getOneRoleSheetTable();
         try {
@@ -2036,7 +1872,6 @@
         }
         setTimeout(() => setSurveyFeedbackMsg(''), 3500);
       };
-
       const handleDownloadOneRoleCsv = () => {
         const { headers, rows } = getOneRoleSheetTable();
         const csv = '﻿' + convertRowsToCsv(headers, rows);
@@ -2052,89 +1887,39 @@
         setSurveyFeedbackMsg('1인 1역 재투표 CSV 파일을 내려받았습니다.');
         setTimeout(() => setSurveyFeedbackMsg(''), 3500);
       };
-
       // ===== UI 렌더링 =====
       const tabActiveTone = {
-        photos: 'bg-emerald-600',
-        submit: 'bg-orange-600',
-        videoSubmit: 'bg-cyan-600',
-        approval: 'bg-indigo-600',
-        videos: 'bg-violet-600'
+        points: 'from-amber-400 to-orange-500',
+        videos: 'from-violet-400 to-purple-500',
+        photos: 'from-emerald-400 to-teal-500',
+        submit: 'from-orange-400 to-rose-500',
+        videoSubmit: 'from-cyan-400 to-sky-500',
+        links: 'from-sky-400 to-blue-500',
+        survey: 'from-blue-400 to-indigo-500',
+        hiclass: 'from-slate-600 to-slate-800',
+        approval: 'from-indigo-500 to-violet-600'
       };
-      const tabHoverTone = {
-        photos: 'hover:bg-emerald-50 hover:text-emerald-700',
-        submit: 'hover:bg-orange-50 hover:text-orange-700',
-        videoSubmit: 'hover:bg-cyan-50 hover:text-cyan-700',
-        approval: 'hover:bg-indigo-50 hover:text-indigo-700',
-        videos: 'hover:bg-violet-50 hover:text-violet-700'
-      };
-
       const TabButton = ({ id, iconName, label }) => (
-        <button onClick={() => setActiveTab(id)} className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-2xl transition-all duration-200 ${ activeTab === id ? `${tabActiveTone[id] || 'bg-blue-600'} text-white shadow-lg transform -translate-y-1` : `bg-white text-slate-500 ${tabHoverTone[id] || 'hover:bg-blue-50'} border border-slate-100 shadow-sm` }`}>
+        <button onClick={() => setActiveTab(id)} className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-2xl font-bold transition-all duration-200 ${ activeTab === id ? `bg-gradient-to-br ${tabActiveTone[id] || 'from-blue-500 to-indigo-500'} text-white shadow-lg scale-[1.04] -translate-y-0.5` : 'bg-white/80 backdrop-blur text-slate-500 hover:bg-white hover:-translate-y-0.5 border border-white shadow-sm' }`}>
           <Icon name={iconName} size={20} className="mb-1 sm:mb-2" />
           <span className="text-[11px] sm:text-sm font-bold truncate w-full text-center">{label}</span>
         </button>
       );
-
       const PhotoAppFrame = ({ mode, title, minHeight = '820px', tone = 'slate' }) => {
-        const frameTone = {
-          photos: 'bg-emerald-50 border-emerald-200 text-emerald-900',
-          submit: 'bg-orange-50 border-orange-200 text-orange-900',
-          teacher: 'bg-indigo-50 border-indigo-200 text-indigo-900',
-          videos: 'bg-cyan-50 border-cyan-200 text-cyan-900',
-          slate: 'bg-slate-50 border-slate-200 text-slate-900'
-        };
-        const buttonTone = {
-          photos: 'bg-emerald-600 hover:bg-emerald-700',
-          submit: 'bg-orange-600 hover:bg-orange-700',
-          teacher: 'bg-indigo-600 hover:bg-indigo-700',
-          videos: 'bg-cyan-600 hover:bg-cyan-700',
-          slate: 'bg-slate-700 hover:bg-slate-800'
-        };
         const directUrl = getPhotoAppUrl(mode);
-        const directLabel = mode === 'teacher' ? '승인 관리' : mode === 'photos' ? '사진 보기' : tone === 'videos' ? '영상 제출' : '사진 제출';
-        const directHelp = mode === 'teacher'
-          ? '승인 화면은 Google 계정·Drive 권한 확인이 필요해서 새 창에서 여는 방식이 가장 안정적입니다.'
-          : mode === 'photos'
-            ? 'Drive 미리보기 안에서 사진이 비어 보이면 새 창으로 열어 확인해주세요.'
-            : tone === 'videos'
-              ? '영상 업로드는 Google Drive 미리보기나 중첩 iframe에서 멈출 수 있어 새 창 열기를 기본으로 사용합니다.'
-              : '사진 업로드가 멈추면 새 창으로 열어 제출해주세요.';
-
         if (isPhotoBoardUrlReady) {
           return (
-            <div className={`${frameTone[tone] || frameTone.slate} border rounded-3xl overflow-hidden shadow-sm p-4 sm:p-5`}>
-              <div className="bg-white/90 border border-current/10 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-black text-lg flex items-center">
-                    <Icon name="up-right-from-square" size={16} className="mr-2" />{directLabel} 직접 열기
-                  </h3>
-                  <p className="text-sm font-bold mt-1 leading-relaxed opacity-80">{directHelp}</p>
-                </div>
-                <a href={directUrl} target="_blank" rel="noopener noreferrer" className={`${buttonTone[tone] || buttonTone.slate} text-white font-black px-5 py-3 rounded-xl shadow-sm text-center shrink-0`}>
-                  새 창으로 열기
+            <div className="bg-white border-2 border-slate-100 rounded-3xl overflow-hidden shadow-sm">
+              <div className="flex items-center justify-between px-5 py-2.5 bg-slate-50/80 border-b border-slate-100">
+                <span className="text-xs font-bold text-slate-400 truncate">{title}</span>
+                <a href={directUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-400 hover:text-indigo-500 transition-colors shrink-0 ml-3" title="문제가 있을 때만 사용하세요">
+                  새 창에서 열기 ↗
                 </a>
               </div>
-
-              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 mb-4 text-sm font-bold leading-relaxed">
-                아래 미리보기 화면이 비어 있거나 버튼이 눌리지 않으면 오류가 아니라 Google Drive 미리보기·Google Sites 임베드 제한일 가능성이 큽니다. 그때는 위의 <span className="underline">새 창으로 열기</span>를 사용하세요.
-              </div>
-
-              {isTeacher && (
-                <div className="flex flex-wrap gap-2 mb-4">
-                  <a href={PHOTO_DRIVE_FOLDER_URL} target="_blank" rel="noopener noreferrer" className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm">
-                    <Icon name="folder-open" size={13} className="mr-1" /> 사진 Drive 폴더
-                  </a>
-                  <a href={VIDEO_DRIVE_FOLDER_URL} target="_blank" rel="noopener noreferrer" className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm">
-                    <Icon name="folder-open" size={13} className="mr-1" /> 영상 Drive 폴더
-                  </a>
-                </div>
-              )}
-
               <iframe
                 src={directUrl}
                 title={title}
-                className="w-full border-0 bg-white rounded-[22px] shadow-inner"
+                className="w-full border-0 bg-white"
                 style={{ minHeight }}
                 loading="eager"
                 allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
@@ -2143,45 +1928,38 @@
             </div>
           );
         }
-
         return (
-          <div className={`rounded-3xl p-6 leading-relaxed ${isPhotoBoardUrlDrive ? 'bg-rose-50 border border-rose-200 text-rose-900' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+          <div className="rounded-3xl p-6 leading-relaxed bg-amber-50 border border-amber-200 text-amber-900">
             <h3 className="font-black text-lg mb-2">
               <Icon name="triangle-exclamation" size={18} className="mr-2" />
-              {isPhotoBoardUrlDrive ? 'Drive 폴더 주소가 게시판 iframe에 들어가 있습니다.' : 'Apps Script 웹앱 URL 연결이 필요합니다.'}
+              Apps Script 웹앱 URL 연결이 필요합니다.
             </h3>
-            {isPhotoBoardUrlDrive ? (
-              <p className="text-sm mb-3">
-                사진 게시판 본문에는 Drive 폴더 주소가 아니라 <strong>Apps Script 웹앱 URL</strong>을 넣어야 합니다. Drive 폴더 주소는 선생님 Drive 폴더 버튼에만 사용됩니다.
-              </p>
-            ) : (
-              <p className="text-sm mb-3">
-                배포한 Apps Script 웹앱 주소를 이 HTML 코드 상단의 <strong>PHOTO_BOARD_WEBAPP_URL</strong> 값에 넣어주세요. 주소는 <strong>/exec</strong>로 끝나는 배포 URL이어야 합니다.
-              </p>
-            )}
+            <p className="text-sm mb-3">
+              배포한 Apps Script 웹앱 주소를 이 HTML 코드 상단의 <strong>PHOTO_BOARD_WEBAPP_URL</strong> 값에 넣어주세요. 주소는 <strong>/exec</strong>로 끝나는 배포 URL이어야 합니다.
+            </p>
             <div className="bg-white border border-current/20 rounded-2xl p-4 text-sm font-mono break-all">
-              const PHOTO_BOARD_WEBAPP_URL = 'https://script.google.com/macros/s/배포ID/exec';<br />
-              const PHOTO_DRIVE_FOLDER_URL = 'https://drive.google.com/drive/folders/1CfGsDpBbQJwtaj8efzIHe9tUoQYLCeZ4?usp=sharing';
+              const PHOTO_BOARD_WEBAPP_URL = 'https://script.google.com/macros/s/배포ID/exec';
             </div>
-            <p className="text-sm mt-3">배포 관리 화면의 <strong>웹 앱 URL</strong>에서 복사한 주소를 넣어야 하며, Google Drive 폴더 링크나 배포 ID만 넣으면 안 됩니다.</p>
           </div>
         );
       };
-
       return (
         <div className="min-h-screen font-sans text-slate-800 pb-20">
-          <header className="bg-white px-6 py-8 shadow-sm rounded-b-3xl mb-6 relative overflow-hidden max-w-4xl mx-auto">
-            <div className="absolute top-0 right-0 p-8 opacity-10"><Icon name="face-smile" size={120} /></div>
-            <div className="relative z-10 flex justify-between items-start">
-              <div>
-                <div className="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-bold mb-3">2026학년도</div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-2">6학년 4반 종합 공간 ✨</h1>
-                <p className="text-slate-500 font-medium text-sm sm:text-base">투표도 하고, 내 포인트도 확인해 보세요!</p>
+          <header className="max-w-4xl mx-auto px-4 pt-5 mb-6">
+            <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white px-7 py-9 shadow-xl shadow-indigo-200">
+              <div className="absolute -top-8 -right-6 text-[110px] opacity-20 anim-float select-none">🎈</div>
+              <div className="absolute bottom-2 right-24 text-4xl opacity-30 anim-float select-none" style={{animationDelay:'1s'}}>✨</div>
+              <div className="absolute -bottom-4 -left-4 text-6xl opacity-20 anim-float select-none" style={{animationDelay:'.5s'}}>🌈</div>
+              <div className="relative z-10 flex justify-between items-start gap-3">
+                <div>
+                  <div className="inline-flex items-center bg-white/20 backdrop-blur px-3 py-1 rounded-full text-xs font-bold mb-3 border border-white/30">🏫 2026학년도</div>
+                  <h1 className="text-3xl sm:text-4xl font-black tracking-tight mb-2"><span className="text-shine">6학년 4반</span> 우리 반 공간</h1>
+                  <p className="text-white/80 font-semibold text-sm sm:text-base">포인트·사진·영상·설문, 여기 다 있어요! 🚀</p>
+                </div>
+                {isTeacher && <span className="bg-white text-indigo-700 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black flex items-center shadow-md shrink-0"><Icon name="shield-halved" size={14} className="mr-1.5" /> 선생님 모드</span>}
               </div>
-              {isTeacher && <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-lg text-sm font-bold flex items-center shadow-sm"><Icon name="shield-halved" size={16} className="mr-1" /> 선생님 모드</span>}
             </div>
           </header>
-
           <main className="max-w-4xl mx-auto px-4">
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-4 mb-8">
               <TabButton id="points" iconName="coins" label="포인트" />
@@ -2194,7 +1972,6 @@
               <TabButton id="hiclass" iconName="mobile-screen-button" label="하이클래스" />
               {isTeacher && <TabButton id="approval" iconName="shield-halved" label="승인 관리" />}
             </div>
-
             {isTeacher && (
               <div className="mb-8 animate-in fade-in">
                 <button onClick={() => setActiveTab('teacher')} className={`w-full py-3 rounded-xl font-bold transition-all ${activeTab === 'teacher' ? 'bg-indigo-600 text-white shadow-md' : 'bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100'}`}>
@@ -2202,9 +1979,8 @@
                 </button>
               </div>
             )}
+            <div className="bg-white/90 backdrop-blur p-4 sm:p-6 rounded-[2rem] shadow-lg shadow-indigo-100/60 border border-white min-h-[400px]">
 
-            <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[400px]">
-              
               {/* === 포인트 뱅크 탭 === */}
               {activeTab === 'points' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2229,7 +2005,6 @@
                       )}
                     </div>
                   </div>
-
                   {bulkOpen && isTeacher && (
                     <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
                       <div className="flex items-start justify-between gap-3 mb-4">
@@ -2239,32 +2014,26 @@
                         </div>
                         <button type="button" onClick={() => setBulkOpen(false)} className="text-emerald-700 hover:text-emerald-900 font-bold">닫기</button>
                       </div>
-
                       {bulkFeedbackMsg && (
                         <div className="mb-3 bg-white p-3 rounded-xl border border-emerald-300 text-emerald-800 font-bold text-sm text-center shadow-sm">
                           {bulkFeedbackMsg}
                         </div>
                       )}
-
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                         <input type="number" value={bulkAmount} onChange={(e) => setBulkAmount(e.target.value)} placeholder="포인트 예: 100" className="border border-emerald-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
                         <input type="text" value={bulkDesc} onChange={(e) => setBulkDesc(e.target.value)} placeholder="공통 내역 예: 발표 우수" className="border border-emerald-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
                       </div>
-
                       <textarea value={bulkNames} onChange={(e) => setBulkNames(e.target.value)} placeholder="예: 고우민, 권다윤, 김도진" className="w-full min-h-[90px] border border-emerald-200 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
-
                       <div className="flex gap-2 mb-3 flex-wrap">
                         <button type="button" onClick={() => setBulkNames(getNamesByGender(null))} className="px-3 py-2 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-sm text-emerald-700">전체 이름 채우기</button>
                         <button type="button" onClick={() => setBulkNames(getNamesByGender('남'))} className="px-3 py-2 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-sm text-emerald-700">남학생</button>
                         <button type="button" onClick={() => setBulkNames(getNamesByGender('여'))} className="px-3 py-2 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-sm text-emerald-700">여학생</button>
                       </div>
-
                       <button type="button" onClick={handleBulkEarnByNames} disabled={isProcessing} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl disabled:opacity-50">
                         {isProcessing ? '지급 처리 중...' : '버튼을 눌러 바로 일괄 지급하기'}
                       </button>
                     </div>
                   )}
-
                   {students.length === 0 ? (
                     <div className="text-center py-16 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
                       <Icon name="user" size={48} className="mx-auto text-slate-300 mb-4" />
@@ -2291,7 +2060,6 @@
                   )}
                 </div>
               )}
-
               {/* === 영상 갤러리 탭 === */}
               {activeTab === 'videos' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2300,38 +2068,33 @@
                       <Icon name="video" className="mr-2 text-indigo-600" />우리 반 영상 갤러리
                     </h2>
                   </div>
-
                   {isTeacher && (
                     <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl mb-6">
                       <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center"><Icon name="film" size={14} className="mr-1"/> 새 영상 올리기 (선생님 전용)</h3>
-                      
+
                       <div className="flex gap-2 mb-3">
                         <button type="button" onClick={() => {setUploadType('file'); resetVideoForm();}} className={`px-4 py-2 text-sm font-bold rounded-lg border transition-colors ${uploadType === 'file' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>직접 업로드</button>
                         <button type="button" onClick={() => {setUploadType('link'); resetVideoForm();}} className={`px-4 py-2 text-sm font-bold rounded-lg border transition-colors ${uploadType === 'link' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'}`}>유튜브 링크</button>
                       </div>
-
                       <form onSubmit={handleVideoUpload} className="flex flex-col gap-3">
                         <input type="text" value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="영상 제목 (예: 가을 운동회 하이라이트)" className="w-full border border-indigo-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-                        
+
                         {uploadType === 'link' ? (
                           <input type="text" value={videoLink} onChange={(e) => setVideoLink(e.target.value)} placeholder="유튜브 링크 주소를 붙여넣으세요" className="w-full border border-indigo-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
                         ) : (
                           <input type="file" accept="video/*" ref={fileInputRef} onChange={(e) => setVideoFile(e.target.files[0])} className="w-full border border-indigo-200 rounded-xl px-3 py-2 bg-white text-sm file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" required />
                         )}
-
                         {uploadProgress > 0 && uploadType === 'file' && (
                           <div className="w-full bg-slate-200 rounded-full h-2.5 mt-2">
                             <div className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
                           </div>
                         )}
-
                         <button type="submit" disabled={isProcessing} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-3 rounded-xl mt-1 transition-colors">
                           {isProcessing ? '업로드 진행 중...' : '영상 등록하기'}
                         </button>
                       </form>
                     </div>
                   )}
-
                   {videos.length === 0 ? (
                     <div className="text-center py-12 text-slate-400">
                       <Icon name="video-slash" size={48} className="mx-auto mb-3 opacity-50" />
@@ -2349,7 +2112,7 @@
                                 <source src={video.url} />지원하지 않는 브라우저입니다.
                               </video>
                             ) : (
-                              <a href={video.url} target="_top" className="flex flex-col items-center justify-center w-full h-full bg-slate-800 text-white hover:bg-slate-700 transition-colors">
+                              <a href={video.url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center w-full h-full bg-slate-800 text-white hover:bg-slate-700 transition-colors">
                                 <Icon name="arrow-up-right-from-square" size={32} className="mb-2" />
                                 <span className="font-bold">외부 링크로 이동</span>
                               </a>
@@ -2372,7 +2135,6 @@
                   )}
                 </div>
               )}
-
               {/* === 사진 게시판 탭: 승인된 사진만 가볍게 보기 === */}
               {activeTab === 'photos' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2387,7 +2149,7 @@
                       </p>
                     </div>
                     {isTeacher && (
-                      <a href={PHOTO_DRIVE_FOLDER_URL} target="_top" rel="noopener noreferrer" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm shrink-0 text-center">
+                      <a href={PHOTO_DRIVE_FOLDER_URL} target="_blank" rel="noopener noreferrer" className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm shrink-0 text-center">
                         <Icon name="folder-open" size={14} className="mr-1" /> 선생님 Drive 폴더
                       </a>
                     )}
@@ -2395,7 +2157,6 @@
                   <PhotoAppFrame mode="photos" title="6학년 4반 승인 사진 게시판" minHeight="720px" tone="photos" />
                 </div>
               )}
-
               {/* === 사진 제출 탭: 영상 제출함과 분리 === */}
               {activeTab === 'submit' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2421,13 +2182,11 @@
                       </div>
                       <div className="bg-orange-50 text-orange-700 font-bold rounded-xl px-3 py-2 text-sm border border-orange-100 shrink-0">{pairPhotoRequests.length}건</div>
                     </div>
-
                     {pairPhotoFeedbackMsg && (
                       <div className="mb-4 bg-orange-50 border border-orange-200 text-orange-700 font-bold text-sm rounded-2xl p-3 text-center">
                         {pairPhotoFeedbackMsg}
                       </div>
                     )}
-
                     {pairPhotoSubmitted ? (
                       <div className="bg-orange-50 border border-orange-100 rounded-2xl p-5 text-center">
                         <div className="bg-green-100 text-green-600 w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3"><Icon name="circle-check" size={28} /></div>
@@ -2444,7 +2203,6 @@
                             {classRoster.map(student => <option key={student.name} value={student.name}>{student.name}</option>)}
                           </select>
                         </div>
-
                         <div>
                           <div className="flex items-center justify-between mb-2">
                             <label className="block text-sm font-bold text-slate-700">같이 찍고 싶은 친구</label>
@@ -2462,46 +2220,38 @@
                             })}
                           </div>
                         </div>
-
                         <textarea value={pairPhotoForm.memo} onChange={(e) => setPairPhotoForm({ ...pairPhotoForm, memo: e.target.value })} placeholder="사진 콘셉트나 하고 싶은 말이 있으면 적어주세요. 예: 하트 포즈, 운동장 배경 등" className="w-full border border-orange-200 rounded-xl px-4 py-3 bg-orange-50 min-h-[80px] focus:outline-none focus:ring-2 focus:ring-orange-500" />
-
                         <button type="submit" disabled={isProcessing} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-xl disabled:opacity-50 shadow-md">
                           {isProcessing ? '저장 중...' : '짝사진 희망 명단 제출하기'}
                         </button>
                       </form>
                     )}
                   </div>
-
                   <PhotoAppFrame mode="submit" title="6학년 4반 사진 제출함" minHeight="760px" tone="submit" />
                 </div>
               )}
-
-              {/* === 학생 영상 제출 탭: 기존 Google Drive 통합 제출 경로로 안전 복구 === */}
+              {/* === 학생 영상 제출 탭: Google Drive 통합 제출 === */}
               {activeTab === 'videoSubmit' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="bg-cyan-50 border border-cyan-200 rounded-3xl p-5 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <div className="inline-flex items-center bg-cyan-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">영상 탭 · Google Drive 업로더 재연결</div>
+                      <div className="inline-flex items-center bg-cyan-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">영상 제출 · Google Drive 저장</div>
                       <h2 className="text-xl font-bold flex items-center text-slate-800">
                         <Icon name="cloud-arrow-up" className="mr-2 text-cyan-600" />영상 제출함
                       </h2>
                       <p className="text-sm text-cyan-900 mt-2 leading-relaxed font-bold">
-                        ‘연결 확인’에서 멈추던 Firebase 영상 업로드를 제거하고, 기존에 정상 작동했던 Apps Script 제출창을 다시 연결했습니다. Google Drive 미리보기에서 막힐 수 있어 새 창 열기 버튼을 먼저 사용하도록 바꿨습니다.
+                        제출한 영상은 선생님 Google Drive에 저장됩니다. 아래 화면에서 바로 제출할 수 있어요.
                       </p>
                     </div>
                     {isTeacher && (
-                      <a href={VIDEO_DRIVE_FOLDER_URL} target="_top" rel="noopener noreferrer" className="bg-white hover:bg-cyan-100 text-cyan-700 border border-cyan-200 font-bold px-4 py-3 rounded-xl text-sm shadow-sm shrink-0 text-center">
+                      <a href={VIDEO_DRIVE_FOLDER_URL} target="_blank" rel="noopener noreferrer" className="bg-white hover:bg-cyan-100 text-cyan-700 border border-cyan-200 font-bold px-4 py-3 rounded-xl text-sm shadow-sm shrink-0 text-center">
                         <Icon name="folder-open" size={14} className="mr-1" /> Drive 영상제출함
                       </a>
                     )}
                   </div>
-                  <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 mb-5 text-sm font-bold leading-relaxed">
-                    업로드 버튼이 안 눌리거나 화면이 비어 있으면 위의 새 창으로 열기를 누르세요. 500MB 실제 제한은 이 제출창을 제공하는 Apps Script 내부 설정에서도 함께 변경해야 합니다.
-                  </div>
                   <PhotoAppFrame mode="submit" title="6학년 4반 Google Drive 영상 제출함" minHeight="980px" tone="videos" />
                 </div>
               )}
-
               {/* === 승인 관리 탭: 선생님 모드에서만 표시 === */}
               {activeTab === 'approval' && isTeacher && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2515,15 +2265,13 @@
                         승인 대기 자료를 확인한 뒤 공개하거나 반려합니다. 학생이 보는 공개 게시판과 분리된 화면입니다.
                       </p>
                     </div>
-                    <a href={PHOTO_DRIVE_FOLDER_URL} target="_top" rel="noopener noreferrer" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm shrink-0 text-center">
+                    <a href={PHOTO_DRIVE_FOLDER_URL} target="_blank" rel="noopener noreferrer" className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold px-4 py-2 rounded-xl text-sm shadow-sm shrink-0 text-center">
                       <Icon name="folder-open" size={14} className="mr-1" /> Drive 폴더
                     </a>
                   </div>
                   <PhotoAppFrame mode="teacher" title="6학년 4반 승인 관리" minHeight="980px" tone="teacher" />
                 </div>
               )}
-
-
               {/* === 학급 링크 탭 === */}
               {activeTab === 'links' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2532,7 +2280,7 @@
                       <Icon name="link" className="mr-2 text-indigo-600" />우리 반 필수 링크 모음
                     </h2>
                   </div>
-                  
+
                   {isTeacher && (
                     <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl mb-6">
                       <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center"><Icon name="plus" size={14} className="mr-1"/> 새 링크 추가하기 (선생님 전용)</h3>
@@ -2545,7 +2293,6 @@
                       </form>
                     </div>
                   )}
-
                   {links.length === 0 ? (
                     <div className="text-center py-12 text-slate-400">
                       <Icon name="folder-open" size={48} className="mx-auto mb-3 opacity-50" />
@@ -2555,7 +2302,7 @@
                     <div className="grid grid-cols-1 gap-4">
                       {links.map((link) => (
                         <div key={link.id} className="w-full min-w-0 flex items-stretch gap-2 bg-slate-50 border border-slate-200 rounded-2xl p-3 hover:border-indigo-300 transition-all">
-                          <a href={link.url} target="_top" rel="noopener noreferrer" className="min-w-0 flex-1 flex items-center overflow-hidden">
+                          <a href={link.url} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 flex items-center overflow-hidden">
                             <div className="bg-indigo-100 text-indigo-600 w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0">
                               <Icon name="arrow-up-right-from-square" size={16} />
                             </div>
@@ -2589,7 +2336,6 @@
                   )}
                 </div>
               )}
-
               {/* === 설문 탭 === */}
               {activeTab === 'survey' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-3xl mx-auto">
@@ -2608,19 +2354,16 @@
                       </div>
                     )}
                   </div>
-
                   {surveyFeedbackMsg && (
                     <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm rounded-2xl p-3 text-center">
                       {surveyFeedbackMsg}
                     </div>
                   )}
-
                   {worldcupFeedbackMsg && (
                     <div className="mb-4 bg-purple-50 border border-purple-200 text-purple-700 font-bold text-sm rounded-2xl p-3 text-center">
                       {worldcupFeedbackMsg}
                     </div>
                   )}
-
                   {isTeacher && worldcupCreateOpen && (
                     <form onSubmit={handleCreateWorldcupPoll} className="mb-6 bg-purple-50 border border-purple-200 rounded-2xl p-5 shadow-sm space-y-3">
                       <div className="flex items-center justify-between gap-3">
@@ -2674,7 +2417,6 @@
                       </button>
                     </form>
                   )}
-
                   {isTeacher && surveyCreateOpen && (
                     <form onSubmit={handleCreateSurveyBoard} className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
                       <div className="flex items-center justify-between gap-3">
@@ -2692,7 +2434,6 @@
                       </button>
                     </form>
                   )}
-
                   <div className="grid grid-cols-1 gap-4">
                     {/* 카훗식 실시간 월드컵 설문 */}
                     <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 shadow-sm">
@@ -2704,7 +2445,6 @@
                         </div>
                         <div className="bg-white text-purple-700 font-bold rounded-xl px-3 py-2 text-sm border border-purple-100 shrink-0">{worldcupPolls.length}개</div>
                       </div>
-
                       {worldcupPolls.length === 0 ? (
                         <div className="bg-white rounded-2xl border border-purple-100 p-6 text-center text-slate-400 shadow-sm">
                           아직 열린 월드컵 설문이 없습니다.
@@ -2737,7 +2477,6 @@
                                     </button>
                                   )}
                                 </div>
-
                                 {(!poll.liveStatus || poll.liveStatus === 'ready') && (
                                   <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 text-center">
                                     <Icon name="hourglass-start" size={36} className="text-purple-400 mb-3" />
@@ -2748,7 +2487,6 @@
                                     )}
                                   </div>
                                 )}
-
                                 {poll.liveStatus === 'voting' && (
                                   <div className="space-y-4">
                                     <div className="flex items-center justify-between bg-purple-50 border border-purple-100 rounded-xl px-4 py-3 font-bold text-purple-800">
@@ -2773,7 +2511,6 @@
                                     )}
                                   </div>
                                 )}
-
                                 {poll.liveStatus === 'revealed' && (
                                   <div className="space-y-4">
                                     <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 text-center">
@@ -2802,7 +2539,6 @@
                                     )}
                                   </div>
                                 )}
-
                                 {poll.liveStatus === 'finished' && (
                                   <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 text-center">
                                     <div className="text-sm font-bold text-purple-700 mb-3">월드컵 종료</div>
@@ -2825,7 +2561,6 @@
                         </div>
                       )}
                     </div>
-
                     {/* 새 1인 1역 재투표 항목 */}
                     <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5 shadow-sm">
                       <div className="flex items-start justify-between gap-3 mb-4">
@@ -2841,7 +2576,6 @@
                           <div className="text-[11px] text-blue-400 mt-0.5">기록 {getCurrentOneRoleSurveys().length}건</div>
                         </div>
                       </div>
-
                       {isTeacher && (
                         <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <button type="button" onClick={handleCopyOneRoleSheet} className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-3 rounded-xl text-sm shadow-sm">
@@ -2855,7 +2589,6 @@
                           </button>
                         </div>
                       )}
-
                       {isSubmitted ? (
                         <div className="bg-white p-5 rounded-2xl border border-blue-100 text-center">
                           <div className="bg-green-100 text-green-600 w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3"><Icon name="circle-check" size={28} /></div>
@@ -2885,7 +2618,6 @@
                         </form>
                       )}
                     </div>
-
                     {/* 기존 1인 1역 추천 기록 보관 카드 */}
                     <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-sm">
                       <div className="flex items-start justify-between gap-3 mb-4">
@@ -2900,7 +2632,6 @@
                           {isTeacher ? `${getLegacyOneRoleSurveys().length}건 보관` : '입력 없음'}
                         </div>
                       </div>
-
                       {!isTeacher ? (
                         <div className="bg-white border border-slate-200 rounded-2xl p-4 text-slate-600 text-sm font-bold leading-relaxed">
                           학생은 이 카드에 제출하지 않습니다. 새로 투표할 때는 위에 있는 <span className="text-blue-600">{oneRoleVoteMeta.title}</span> 카드를 사용하세요.
@@ -2926,7 +2657,6 @@
                                   </ul>
                                 )}
                               </div>
-
                               <div className="bg-white border border-slate-200 rounded-2xl p-4">
                                 <h4 className="font-black text-slate-800 mb-3">기존 응답 목록</h4>
                                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
@@ -2946,7 +2676,6 @@
                         </div>
                       )}
                     </div>
-
                     {/* 추가 설문 게시글 */}
                     {surveyBoards.length === 0 ? (
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-400 shadow-sm">
@@ -2977,7 +2706,6 @@
                                 )}
                               </div>
                             </div>
-
                             <form onSubmit={(e) => handleSubmitSurveyBoardResponse(e, surveyBoard)} className="bg-white p-4 rounded-2xl border border-slate-100 space-y-3 mb-4">
                               {!surveyBoard.isSecret && (
                                 <input type="text" value={answerForm.name || ''} onChange={(e) => updateSurveyAnswerForm(surveyBoard.id, 'name', e.target.value)} placeholder="내 이름" className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-slate-50" />
@@ -2992,7 +2720,6 @@
                                 {isProcessing ? '저장 중...' : '응답 제출하기'}
                               </button>
                             </form>
-
                             {(!surveyBoard.isSecret || isTeacher) && (
                               <div className="space-y-2">
                                 <h4 className="font-bold text-slate-700 text-sm border-t pt-3">응답 목록</h4>
@@ -3015,7 +2742,6 @@
                         );
                       })
                     )}
-
                     <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
                       <h3 className="font-black text-slate-800 mb-3 flex items-center">
                         <Icon name="lock" size={18} className="mr-2 text-blue-500" />
@@ -3048,7 +2774,6 @@
                   </div>
                 </div>
               )}
-
               {/* === 하이클래스 가입 탭 === */}
               {activeTab === 'hiclass' && (
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 text-center max-w-xl mx-auto relative">
@@ -3069,12 +2794,10 @@
                   </button>
                 </div>
               )}
-
               {/* === 선생님 설문 관리자 탭 === */}
               {activeTab === 'teacher' && isTeacher && (
                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                    <h2 className="text-xl font-bold text-indigo-800 mb-6 border-b pb-4"><Icon name="shield-halved" className="inline mr-2" /> 설문 상세 내역 관리</h2>
-
                    <div className="space-y-6">
                      <div className="bg-white border border-slate-200 rounded-2xl p-5">
                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
@@ -3105,7 +2828,6 @@
                          ))}
                        </div>
                      </div>
-
                      <div className="bg-white border border-slate-200 rounded-2xl p-5">
                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
                          <div>
@@ -3114,7 +2836,6 @@
                          </div>
                          <div className="bg-slate-50 text-slate-700 font-bold rounded-xl px-3 py-2 text-sm border border-slate-200 shrink-0">{getLegacyOneRoleSurveys().length}건</div>
                        </div>
-
                        {getLegacyOneRoleSurveys().length === 0 ? (
                          <p className="text-center text-slate-400 py-6">기존 1인 1역 추천 응답이 없습니다.</p>
                        ) : (
@@ -3134,7 +2855,6 @@
                                </ul>
                              )}
                            </div>
-
                            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                              {getLegacyOneRoleSurveys().map((survey) => (
                                <div key={`teacher-legacy-one-role-${survey.id}`} className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
@@ -3149,7 +2869,6 @@
                          </div>
                        )}
                      </div>
-
                      <div className="bg-white border border-slate-200 rounded-2xl p-5">
                        <h3 className="font-black text-slate-800 mb-4">카훗식 실시간 월드컵 진행 관리</h3>
                        {worldcupPolls.length === 0 ? (
@@ -3174,14 +2893,12 @@
                                      <button type="button" onClick={() => handleResetWorldcupLiveTournament(poll)} className="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 font-bold px-3 py-2 rounded-xl text-xs shadow-sm">초기화</button>
                                    </div>
                                  </div>
-
                                  {(!poll.liveStatus || poll.liveStatus === 'ready') && (
                                    <div className="bg-white p-4 rounded-2xl border border-purple-100 text-center">
                                      <p className="text-sm text-slate-600 font-bold mb-3">대기 상태입니다. 시작 버튼을 누르면 첫 대결이 학생 화면에 열립니다.</p>
                                      <button type="button" onClick={() => handleStartWorldcupLiveTournament(poll)} disabled={isProcessing} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-3 rounded-xl disabled:opacity-50">월드컵 시작</button>
                                    </div>
                                  )}
-
                                  {poll.liveStatus === 'voting' && (
                                    <div className="bg-white p-4 rounded-2xl border border-purple-100">
                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
@@ -3197,7 +2914,6 @@
                                      </div>
                                    </div>
                                  )}
-
                                  {poll.liveStatus === 'revealed' && (
                                    <div className="bg-white p-4 rounded-2xl border border-purple-100">
                                      <p className="font-black text-slate-800 mb-2">공개 결과: {result.left} {result.leftCount || 0}표 vs {result.right} {result.rightCount || 0}표</p>
@@ -3212,7 +2928,6 @@
                                      )}
                                    </div>
                                  )}
-
                                  {poll.liveStatus === 'finished' && (
                                    <div className="bg-white p-4 rounded-2xl border border-purple-100">
                                      <p className="font-black text-slate-800 mb-3">최종 결과</p>
@@ -3221,7 +2936,6 @@
                                      </div>
                                    </div>
                                  )}
-
                                  {(poll.liveHistory || []).length > 0 && (
                                    <div className="mt-4 bg-white p-4 rounded-2xl border border-purple-100">
                                      <h4 className="font-black text-purple-800 mb-3">대결 기록</h4>
@@ -3241,7 +2955,6 @@
                          </div>
                        )}
                      </div>
-
                      <div className="bg-white border border-slate-200 rounded-2xl p-5">
                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
                          <div>
@@ -3257,20 +2970,17 @@
                            </button>
                          </div>
                        </div>
-
                        {pairPhotoExportMsg && (
                          <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm rounded-2xl p-3 text-center">
                            {pairPhotoExportMsg}
                          </div>
                        )}
-
                        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5">
                          <h4 className="font-black text-emerald-800 mb-2">시트 출력 안내</h4>
                          <p className="text-sm text-emerald-700 font-bold leading-relaxed">
                            복사 버튼을 누른 뒤 구글시트 또는 엑셀의 A1 셀에 붙여넣으면 번호, 이름, 제출여부, 희망친구1, 희망친구2, 상호선택, 메모, 제출시각 열로 정리됩니다. CSV 파일은 바로 내려받아 열 수 있습니다.
                          </p>
                        </div>
-
                        {pairPhotoRequests.length === 0 ? (
                          <p className="text-center text-slate-400 py-6">아직 짝사진 희망 제출이 없습니다. 그래도 시트 출력 버튼을 누르면 전체 명렬표와 미제출 표시가 출력됩니다.</p>
                        ) : (
@@ -3287,7 +2997,6 @@
                                </div>
                              )}
                            </div>
-
                            <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100">
                              <h4 className="font-black text-orange-800 mb-3">친구별 신청 받은 횟수</h4>
                              {getPairPhotoCounts().length === 0 ? (
@@ -3303,7 +3012,6 @@
                                </div>
                              )}
                            </div>
-
                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
                              <div className="flex items-center justify-between mb-3">
                                <h4 className="font-black text-slate-800">시트 출력 미리보기</h4>
@@ -3330,7 +3038,6 @@
                                </table>
                              </div>
                            </div>
-
                            <div className="space-y-2">
                              <h4 className="font-black text-slate-800">개별 제출 내역</h4>
                              {getLatestPairPhotoRequests().map((request) => (
@@ -3349,7 +3056,6 @@
                          </div>
                        )}
                      </div>
-
                      <div className="bg-white border border-slate-200 rounded-2xl p-5">
                        <h3 className="font-black text-slate-800 mb-4">추가 설문 응답</h3>
                        {surveyBoards.length === 0 ? (
@@ -3390,7 +3096,6 @@
               )}
             </div>
           </main>
-
           {/* ===== 포인트 관리자 전용 모달 창 ===== */}
           {selectedStudent && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -3406,7 +3111,6 @@
                     <div className="bg-white px-3 py-2 rounded-xl shadow-sm border border-indigo-100 flex-1"><span className="text-slate-500 block text-xs mb-1">누적 포인트</span><span className="font-bold text-slate-700 text-lg">{(selectedStudent.cumulative || 0).toLocaleString()} P</span></div>
                   </div>
                 </div>
-
                 <div className="flex border-b border-slate-200 bg-white">
                   {isTeacher && (
                     <>
@@ -3416,7 +3120,6 @@
                   )}
                   <button onClick={() => setPointModalTab('history')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500'}`}><Icon name="clock-rotate-left" size={16} className="mr-1" /> 전체 내역</button>
                 </div>
-
                 <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
                   {pointModalTab === 'earn' && isTeacher && (
                     <div>
@@ -3427,7 +3130,6 @@
                       <button onClick={() => handleTransaction('earn')} disabled={isProcessing} className="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-md">포인트 지급하기</button>
                     </div>
                   )}
-
                   {pointModalTab === 'spend' && isTeacher && (
                     <div>
                       <div className="bg-rose-100/50 border border-rose-200 rounded-2xl p-4 mb-6">
@@ -3447,7 +3149,6 @@
                       </div>
                     </div>
                   )}
-
                   {pointModalTab === 'history' && (
                     <div className="space-y-3">
                       {transactions.filter(t => t.studentId === selectedStudent.id).length === 0 ? (
@@ -3486,17 +3187,15 @@
               </div>
             </div>
           )}
-
           <footer className="text-center py-8 text-slate-400 text-sm relative max-w-4xl mx-auto">
             <p>담임선생님 연락처: 010-XXXX-XXXX</p>
             <p className="mt-1">ⓒ 2026 6학년 4반. All rights reserved.</p>
-            
+
             <div className="absolute right-4 bottom-4">
               <button onClick={() => setShowTeacherAuth(!showTeacherAuth)} className="p-3 text-slate-300 hover:text-indigo-400 transition-colors bg-white rounded-full shadow-sm border border-slate-100">
                 <Icon name={isTeacher ? "unlock" : "lock"} size={18} />
               </button>
             </div>
-
             {showTeacherAuth && !isTeacher && (
               <div className="absolute right-4 bottom-16 bg-white p-5 rounded-2xl shadow-xl border border-slate-200 text-left w-64 z-50">
                 <p className="font-bold text-slate-800 mb-3 flex items-center"><Icon name="shield-halved" size={16} className="mr-2 text-indigo-500"/> 선생님 관리자 모드</p>
@@ -3511,7 +3210,6 @@
         </div>
       );
     }
-
         const root = ReactDOM.createRoot(rootElement);
         root.render(<App />);
       } catch (error) {
@@ -3523,15 +3221,15 @@
         title.textContent = '학급 홈페이지를 불러오지 못했습니다.';
         title.style.cssText = 'font-size:20px;font-weight:800;margin:0 0 10px;';
         const guide = document.createElement('p');
-        guide.textContent = 'Google Drive 미리보기 또는 중첩 iframe에서 스크립트가 막혔을 수 있습니다. 아래 직접 열기 버튼으로 사진·영상 제출창을 열어주세요.';
+        guide.textContent = '스크립트 로딩이 일시적으로 막혔을 수 있습니다. 새로고침하거나 아래 직접 열기 버튼으로 사진·영상 제출창을 열어주세요.';
         guide.style.margin = '0 0 10px';
         const detail = document.createElement('pre');
         detail.textContent = String(error && (error.stack || error.message) || error);
         detail.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:12px;border-radius:12px;font-size:12px;';
         const links = [
-          ['사진 보기', 'https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=photos', '#059669'],
-          ['사진·영상 제출', 'https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=submit', '#ea580c'],
-          ['승인 관리', 'https://script.google.com/macros/s/AKfycbyqlvFGDoP0bPNW9Xf2YcIstkFZ-5hUJgQBKlTYCUzgPYPrPv-WRfyfI9BuyvWYOn3l/exec?mode=teacher', '#4f46e5'],
+          ['사진 보기', 'https://script.google.com/macros/s/AKfycbxr36Z6jND-GhCaInL5P6FohaIdX27t8UnTejifkEplilqhSjpbhjoiz31Mmu-sT2XDig/exec?mode=photos', '#059669'],
+          ['사진·영상 제출', 'https://script.google.com/macros/s/AKfycbxr36Z6jND-GhCaInL5P6FohaIdX27t8UnTejifkEplilqhSjpbhjoiz31Mmu-sT2XDig/exec?mode=submit', '#ea580c'],
+          ['승인 관리', 'https://script.google.com/macros/s/AKfycbxr36Z6jND-GhCaInL5P6FohaIdX27t8UnTejifkEplilqhSjpbhjoiz31Mmu-sT2XDig/exec?mode=teacher', '#4f46e5'],
           ['영상 Drive 폴더', 'https://drive.google.com/drive/folders/18_LGatb9cEBvBI2Hqzt7g30X55SgSHwS', '#0891b2']
         ];
         const linkBox = document.createElement('div');
