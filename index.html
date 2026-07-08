@@ -2174,66 +2174,8 @@
                       <Icon name="camera" className="mr-2 text-orange-600" />사진 제출함
                     </h2>
                     <p className="text-sm text-orange-800 mt-1 leading-relaxed font-bold">
-                      이 탭은 사진 제출과 짝사진 희망 조사 전용입니다. 영상 파일은 옆의 ‘영상 제출’ 탭에서 따로 제출해주세요.
+                      이 탭은 사진 제출 전용입니다. 영상 파일은 옆의 ‘영상 제출’ 탭에서 따로 제출해주세요.
                     </p>
-                  </div>
-                  <div className="bg-white border border-orange-100 rounded-3xl p-5 mb-6 shadow-sm">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div>
-                        <div className="inline-flex items-center bg-orange-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">짝사진 희망 조사</div>
-                        <h3 className="text-lg font-black text-slate-900 flex items-center">
-                          <Icon name="people-arrows" size={18} className="mr-2 text-orange-600" /> 같이 짝사진 찍고 싶은 친구 선택
-                        </h3>
-                        <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                          사진 제출과 별도로, 같이 짝사진을 찍고 싶은 친구를 1~2명까지 고릅니다. 결과는 학생 화면에 공개되지 않고 선생님만 확인합니다.
-                        </p>
-                      </div>
-                      <div className="bg-orange-50 text-orange-700 font-bold rounded-xl px-3 py-2 text-sm border border-orange-100 shrink-0">{pairPhotoRequests.length}건</div>
-                    </div>
-                    {pairPhotoFeedbackMsg && (
-                      <div className="mb-4 bg-orange-50 border border-orange-200 text-orange-700 font-bold text-sm rounded-2xl p-3 text-center">
-                        {pairPhotoFeedbackMsg}
-                      </div>
-                    )}
-                    {pairPhotoSubmitted ? (
-                      <div className="bg-orange-50 border border-orange-100 rounded-2xl p-5 text-center">
-                        <div className="bg-green-100 text-green-600 w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3"><Icon name="circle-check" size={28} /></div>
-                        <h4 className="text-xl font-bold text-slate-800 mb-2">제출 완료!</h4>
-                        <p className="text-sm text-slate-600 mb-3">잘못 제출했거나 다시 내고 싶으면 한 번 더 제출할 수 있습니다.</p>
-                        <button type="button" onClick={() => { setPairPhotoSubmitted(false); setPairPhotoFeedbackMsg(''); }} className="text-orange-600 font-bold hover:underline">다시 제출하기</button>
-                      </div>
-                    ) : (
-                      <form onSubmit={handlePairPhotoSubmit} className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-bold text-slate-700 mb-2">내 이름</label>
-                          <select value={pairPhotoForm.name} onChange={(e) => setPairPhotoForm({ ...pairPhotoForm, name: e.target.value, partners: (pairPhotoForm.partners || []).filter(partner => partner !== e.target.value) })} className="w-full border border-orange-200 rounded-xl px-4 py-3 bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500" required>
-                            <option value="">내 이름을 선택하세요</option>
-                            {classRoster.map(student => <option key={student.name} value={student.name}>{student.name}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-bold text-slate-700">같이 찍고 싶은 친구</label>
-                            <span className="text-xs font-bold text-orange-600">{(pairPhotoForm.partners || []).length}/2명 선택</span>
-                          </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                            {classRoster.map(student => {
-                              const isMe = pairPhotoForm.name === student.name;
-                              const isSelected = (pairPhotoForm.partners || []).includes(student.name);
-                              return (
-                                <button key={student.name} type="button" disabled={!pairPhotoForm.name || isMe} onClick={() => togglePairPhotoPartner(student.name)} className={`rounded-xl px-3 py-3 text-sm font-bold border transition-all ${isSelected ? 'bg-orange-600 text-white border-orange-600 shadow-md' : isMe ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed' : 'bg-white text-slate-700 border-orange-100 hover:bg-orange-50 hover:border-orange-300'} disabled:opacity-60`}>
-                                  {student.name}{isMe && <span className="ml-1 text-xs">나</span>}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <textarea value={pairPhotoForm.memo} onChange={(e) => setPairPhotoForm({ ...pairPhotoForm, memo: e.target.value })} placeholder="사진 콘셉트나 하고 싶은 말이 있으면 적어주세요. 예: 하트 포즈, 운동장 배경 등" className="w-full border border-orange-200 rounded-xl px-4 py-3 bg-orange-50 min-h-[80px] focus:outline-none focus:ring-2 focus:ring-orange-500" />
-                        <button type="submit" disabled={isProcessing} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-xl disabled:opacity-50 shadow-md">
-                          {isProcessing ? '저장 중...' : '짝사진 희망 명단 제출하기'}
-                        </button>
-                      </form>
-                    )}
                   </div>
                   <PhotoAppFrame mode="submit" title="6학년 4반 사진 제출함" minHeight="760px" tone="submit" />
                 </div>
