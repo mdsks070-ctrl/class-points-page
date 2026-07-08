@@ -184,11 +184,11 @@
       { name: '황아영', gender: '여' }, { name: '황재준', gender: '남' }, { name: '박라희', gender: '여' }
     ];
     const rewardQuickItems = [
-      { name: '선곡권 3곡', cost: 400, limit: '' },
-      { name: '포인트 선물권', cost: 400, limit: '' },
-      { name: '옆 자리 선택', cost: 400, limit: '' },
-      { name: '당첨', cost: 400, limit: '' },
-      { name: '쉬는시간 2분', cost: 400, limit: '' }
+      { name: '선곡권 3곡', cost: 400, limit: '', useLimit: 4 },
+      { name: '포인트 선물권', cost: 400, limit: '', useLimit: 1 },
+      { name: '옆 자리 선택', cost: 400, limit: '', useLimit: 1 },
+      { name: '당첨', cost: 400, limit: '', useLimit: 1 },
+      { name: '쉬는시간 2분', cost: 400, limit: '', useLimit: 1 }
     ];
     // 화면에 별도 항목으로 보여줄 현재 월의 1인 1역 재투표 고유 키
     const getCurrentOneRoleVoteMeta = () => {
@@ -267,7 +267,7 @@
       const [pointModalTab, setPointModalTab] = useState('history');
       const [amount, setAmount] = useState('');
       const [desc, setDesc] = useState('');
-      const [rewardForm, setRewardForm] = useState({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+      const [rewardForm, setRewardForm] = useState({ name: '', cost: '400', recipientId: 'self', limit: '', useLimit: '', memo: '' });
       const [rewardFeedbackMsg, setRewardFeedbackMsg] = useState('');
       // ===== 일괄 포인트 지급 관련 상태 =====
       const [bulkOpen, setBulkOpen] = useState(false);
@@ -477,17 +477,41 @@
         const match = description.match(/^뽑기:\s*(.+)$/);
         return match ? normalizeRewardName(match[1]) : '';
       };
-      const getRewardTransactionStatus = (transaction) => {
-        if (!getTransactionRewardName(transaction)) return '';
+      const getRewardDefaultUseLimit = (rewardName) => /선곡권/.test(normalizeRewardName(rewardName)) ? 4 : 1;
+      const getRawRewardStatus = (transaction) => {
         if (transaction.rewardStatus === 'returned') return 'returned';
         if (transaction.rewardStatus === 'used') return 'used';
         if (transaction.rewardStatus === 'available') return 'available';
+        return '';
+      };
+      const getRewardUseLimit = (transaction) => {
+        const savedLimit = parseInt(transaction.rewardUseLimit, 10);
+        if (!isNaN(savedLimit) && savedLimit > 0) return savedLimit;
+        return getRewardDefaultUseLimit(getTransactionRewardName(transaction));
+      };
+      const getRewardUsedCount = (transaction) => {
+        const useLimit = getRewardUseLimit(transaction);
+        const savedCount = parseInt(transaction.rewardUsedCount, 10);
+        if (!isNaN(savedCount) && savedCount >= 0) return Math.min(savedCount, useLimit);
+        const rawStatus = getRawRewardStatus(transaction);
+        if (rawStatus === 'used' || !rawStatus) return useLimit;
+        return 0;
+      };
+      const getRewardRemainingUseCount = (transaction) => Math.max(0, getRewardUseLimit(transaction) - getRewardUsedCount(transaction));
+      const getRewardTransactionStatus = (transaction) => {
+        if (!getTransactionRewardName(transaction)) return '';
+        const rawStatus = getRawRewardStatus(transaction);
+        if (rawStatus === 'returned') return 'returned';
+        if (getRewardUsedCount(transaction) >= getRewardUseLimit(transaction)) return 'used';
+        if (rawStatus === 'used') return 'used';
+        if (rawStatus === 'available') return 'available';
         return 'used';
       };
       const getRewardStatusMeta = (transaction) => {
         const status = getRewardTransactionStatus(transaction);
         if (status === 'returned') return { label: '돌려줌', className: 'bg-slate-100 text-slate-500 border-slate-200' };
         if (status === 'used') return { label: '사용완', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+        if (getRewardUsedCount(transaction) > 0) return { label: '사용중', className: 'bg-sky-50 text-sky-700 border-sky-100' };
         return { label: '미사용', className: 'bg-amber-50 text-amber-700 border-amber-100' };
       };
       const getRewardUsageTransactions = (rewardName) => {
@@ -514,8 +538,11 @@
         const used = rewardTransactions.length;
         const completed = rewardTransactions.filter(transaction => getRewardTransactionStatus(transaction) === 'used').length;
         const available = rewardTransactions.filter(transaction => getRewardTransactionStatus(transaction) === 'available').length;
+        const useTotal = rewardTransactions.reduce((sum, transaction) => sum + getRewardUseLimit(transaction), 0);
+        const useSpent = rewardTransactions.reduce((sum, transaction) => sum + getRewardUsedCount(transaction), 0);
+        const useRemaining = rewardTransactions.reduce((sum, transaction) => sum + getRewardRemainingUseCount(transaction), 0);
         const limit = getRewardUsageLimit(rewardName, fallbackLimit);
-        return { used, completed, available, limit, remaining: limit > 0 ? Math.max(0, limit - used) : null };
+        return { used, completed, available, limit, remaining: limit > 0 ? Math.max(0, limit - used) : null, useTotal, useSpent, useRemaining };
       };
       const getRewardCatalogStats = () => {
         const names = [...new Set([
@@ -535,6 +562,7 @@
           name: item.name,
           cost: String(item.cost || 400),
           limit: item.limit ? String(item.limit) : (normalizeRewardName(prev.name) === item.name ? prev.limit : ''),
+          useLimit: String(item.useLimit || getRewardDefaultUseLimit(item.name)),
           memo: ''
         }));
         setRewardFeedbackMsg('');
@@ -545,14 +573,16 @@
         const rewardName = normalizeRewardName(rewardForm.name);
         const parsedCost = parseInt(rewardForm.cost, 10);
         const parsedLimit = parseInt(rewardForm.limit, 10);
+        const parsedUseLimit = parseInt(rewardForm.useLimit, 10);
         const cleanMemo = String(rewardForm.memo || '').trim();
         const recipientName = getRewardRecipientName();
         if (!rewardName) { setRewardFeedbackMsg('상품명을 입력해주세요.'); return; }
         if (isNaN(parsedCost) || parsedCost <= 0) { setRewardFeedbackMsg('차감 포인트를 올바르게 입력해주세요.'); return; }
         if ((selectedStudent.remaining || 0) < parsedCost) { setRewardFeedbackMsg('잔여 포인트가 부족합니다.'); return; }
+        const effectiveUseLimit = (!isNaN(parsedUseLimit) && parsedUseLimit > 0) ? parsedUseLimit : getRewardDefaultUseLimit(rewardName);
         const rewardStatus = getRewardUsageStatus(rewardName, rewardForm.limit);
         if (rewardStatus.limit > 0 && rewardStatus.used >= rewardStatus.limit) {
-          setRewardFeedbackMsg("'" + rewardName + "' 상품은 정해진 사용 횟수를 모두 사용했습니다.");
+          setRewardFeedbackMsg("'" + rewardName + "' 상품은 정해진 발급 횟수를 모두 사용했습니다.");
           return;
         }
         setIsProcessing(true);
@@ -563,6 +593,7 @@
           const isGift = recipientName && recipientName !== selectedStudent.name;
           const descriptionParts = ['상품 사용: ' + rewardName];
           if (isGift) descriptionParts.push('받는 친구: ' + recipientName);
+          if (effectiveUseLimit > 1) descriptionParts.push(effectiveUseLimit + '회권');
           if (cleanMemo) descriptionParts.push(cleanMemo);
           await addDoc(historyPath, {
             studentId: selectedStudent.id,
@@ -574,13 +605,15 @@
             rewardRecipientId: rewardForm.recipientId || 'self',
             rewardRecipientName: recipientName || selectedStudent.name,
             rewardLimit: (!isNaN(parsedLimit) && parsedLimit > 0) ? parsedLimit : null,
+            rewardUseLimit: effectiveUseLimit,
+            rewardUsedCount: 0,
             rewardMemo: cleanMemo,
             rewardStatus: 'available',
             rewardCreatedAt: Date.now(),
             timestamp: Date.now()
           });
           await updateDoc(studentDocRef, { remaining: (selectedStudent.remaining || 0) - parsedCost, cumulative: selectedStudent.cumulative || 0 });
-          setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+          setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', useLimit: '', memo: '' });
           setRewardFeedbackMsg('상품 보유 기록을 저장했습니다.');
           setPointModalTab('history');
           setTimeout(() => setRewardFeedbackMsg(''), 2500);
@@ -592,10 +625,31 @@
       };
       const handleCompleteRewardTransaction = async (transaction) => {
         if (!isTeacher || !getTransactionRewardName(transaction) || getRewardTransactionStatus(transaction) === 'used' || getRewardTransactionStatus(transaction) === 'returned' || isProcessing) return;
+        const useLimit = getRewardUseLimit(transaction);
         setIsProcessing(true);
         try {
           const historyDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'transactions', transaction.id) : doc(db, 'transactions', transaction.id);
-          await updateDoc(historyDocRef, { rewardStatus: 'used', rewardCompletedAt: Date.now() });
+          await updateDoc(historyDocRef, { rewardStatus: 'used', rewardUseLimit: useLimit, rewardUsedCount: useLimit, rewardCompletedAt: Date.now() });
+        } catch (error) {
+          console.error(error);
+        }
+        setIsProcessing(false);
+      };
+      const handleIncrementRewardUse = async (transaction) => {
+        if (!isTeacher || !getTransactionRewardName(transaction) || getRewardTransactionStatus(transaction) !== 'available' || isProcessing) return;
+        const useLimit = getRewardUseLimit(transaction);
+        const nextUsedCount = Math.min(useLimit, getRewardUsedCount(transaction) + 1);
+        const isComplete = nextUsedCount >= useLimit;
+        setIsProcessing(true);
+        try {
+          const historyDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'transactions', transaction.id) : doc(db, 'transactions', transaction.id);
+          await updateDoc(historyDocRef, {
+            rewardUseLimit: useLimit,
+            rewardUsedCount: nextUsedCount,
+            rewardStatus: isComplete ? 'used' : 'available',
+            rewardLastUsedAt: Date.now(),
+            ...(isComplete ? { rewardCompletedAt: Date.now() } : {})
+          });
         } catch (error) {
           console.error(error);
         }
@@ -698,14 +752,14 @@
         setSelectedStudent(student);
         setPointModalTab(isTeacher ? 'earn' : 'history');
         setRewardFeedbackMsg('');
-        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', useLimit: '', memo: '' });
       };
       const closeModal = () => {
         setSelectedStudent(null);
         setPointModalTab('history');
         setAmount(''); setDesc('');
         setRewardFeedbackMsg('');
-        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', useLimit: '', memo: '' });
       };
       // ---------------- [2. 영상 업로드 및 관리 로직] ----------------
       const handleVideoUpload = async (e) => {
@@ -3253,7 +3307,7 @@
                         <div className="flex flex-wrap gap-2">
                           {rewardQuickItems.map((item) => (
                             <button key={item.name} type="button" onClick={() => fillRewardQuickItem(item)} disabled={isProcessing} className="bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm disabled:opacity-50">
-                              {item.name} · {item.cost}P
+                              {item.name} · {item.cost}P{item.useLimit > 1 ? ' · ' + item.useLimit + '회권' : ''}
                             </button>
                           ))}
                         </div>
@@ -3281,16 +3335,22 @@
                             </select>
                           </div>
                           <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">사용 가능 횟수</label>
-                            <input type="number" min="1" value={rewardForm.limit} onChange={(e) => setRewardForm({ ...rewardForm, limit: e.target.value })} placeholder="비워두면 제한 없음" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                            <label className="block text-sm font-bold text-slate-700 mb-1">상품 발급 제한</label>
+                            <input type="number" min="1" value={rewardForm.limit} onChange={(e) => setRewardForm({ ...rewardForm, limit: e.target.value })} placeholder="비워두면 발급 제한 없음" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-sm font-bold text-slate-700 mb-1">개별 사용 횟수</label>
+                            <input type="number" min="1" value={rewardForm.useLimit} onChange={(e) => setRewardForm({ ...rewardForm, useLimit: e.target.value })} placeholder="비워두면 일반 1회, 선곡권 4회" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
                           </div>
                         </div>
                         {rewardForm.name.trim() && (() => {
                           const status = getRewardUsageStatus(rewardForm.name, rewardForm.limit);
+                          const previewUseLimit = parseInt(rewardForm.useLimit, 10);
+                          const effectiveUseLimit = (!isNaN(previewUseLimit) && previewUseLimit > 0) ? previewUseLimit : getRewardDefaultUseLimit(rewardForm.name);
                           return (
                             <div className="bg-rose-50 border border-rose-100 rounded-2xl p-3 text-sm font-bold text-rose-800 flex flex-wrap gap-2 justify-between">
-                              <span>{normalizeRewardName(rewardForm.name)} 발급 {status.used}회 · 미사용 {status.available}개</span>
-                              <span>{status.limit > 0 ? '총 ' + status.limit + '회 · 남은 ' + status.remaining + '회' : '횟수 제한 없음'}</span>
+                              <span>{normalizeRewardName(rewardForm.name)} 발급 {status.used}회 · 남은 상품 {status.available}개</span>
+                              <span>{status.limit > 0 ? '발급 제한 ' + status.used + '/' + status.limit + '회' : '발급 제한 없음'} · 이번 상품 {effectiveUseLimit}회권</span>
                             </div>
                           );
                         })()}
@@ -3303,26 +3363,39 @@
                         <h4 className="font-black text-slate-800 mb-3 flex items-center"><Icon name="clipboard-list" size={15} className="mr-2 text-slate-500" /> 상품별 사용 현황</h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {getRewardCatalogStats().map(item => (
-                            <div key={item.name} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm flex items-center justify-between gap-2">
-                              <span className="font-bold text-slate-700 truncate">{item.name}</span>
-                              <span className="text-xs font-black text-slate-500 shrink-0">{item.limit > 0 ? item.used + '/' + item.limit + '회' : item.used + '회'} · 미사용 {item.available}</span>
+                            <div key={item.name} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-700 truncate">{item.name}</span>
+                                <span className="text-xs font-black text-slate-500 shrink-0">{item.limit > 0 ? item.used + '/' + item.limit + '회' : item.used + '회'} · 남은 상품 {item.available}</span>
+                              </div>
+                              {item.useTotal > item.used && <div className="text-[11px] text-slate-400 font-bold mt-1">사용 횟수 {item.useSpent}/{item.useTotal}회 · 남은 {item.useRemaining}회</div>}
                             </div>
                           ))}
                         </div>
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                        <h4 className="font-black text-amber-900 mb-3 flex items-center"><Icon name="box-open" size={15} className="mr-2 text-amber-600" /> 미사용 상품 보유 현황</h4>
+                        <h4 className="font-black text-amber-900 mb-3 flex items-center"><Icon name="box-open" size={15} className="mr-2 text-amber-600" /> 남은 상품 보유 현황</h4>
                         {getRewardHoldingTransactions().length === 0 ? (
-                          <p className="text-sm text-amber-700 font-bold text-center py-3">현재 남아 있는 미사용 상품이 없습니다.</p>
+                          <p className="text-sm text-amber-700 font-bold text-center py-3">현재 남아 있는 상품이 없습니다.</p>
                         ) : (
-                          <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                             {getRewardHoldingTransactions().map(item => (
                               <div key={item.id} className="bg-white border border-amber-100 rounded-xl px-3 py-2 text-sm shadow-sm">
-                                <div className="flex items-center justify-between gap-2 font-black text-slate-800">
-                                  <span>{getTransactionRewardName(item)}</span>
-                                  <span className="text-amber-700">{item.rewardRecipientName || item.studentName}</span>
+                                <div className="flex items-start justify-between gap-2 font-black text-slate-800">
+                                  <div className="min-w-0">
+                                    <div className="truncate">{getTransactionRewardName(item)}</div>
+                                    <div className="text-xs text-slate-400 mt-1 font-bold">구매: {item.studentName}{item.timestamp ? ' · ' + new Date(item.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : ''}</div>
+                                  </div>
+                                  <span className="text-amber-700 shrink-0">{item.rewardRecipientName || item.studentName}</span>
                                 </div>
-                                <div className="text-xs text-slate-400 mt-1">구매: {item.studentName}{item.timestamp ? ' · ' + new Date(item.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : ''}</div>
+                                <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
+                                  <span className="text-xs font-black text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2 py-1">사용 {getRewardUsedCount(item)}/{getRewardUseLimit(item)}회 · 남은 {getRewardRemainingUseCount(item)}회</span>
+                                  <div className="flex flex-wrap gap-1.5 justify-end">
+                                    <button type="button" onClick={() => handleIncrementRewardUse(item)} disabled={isProcessing} className="px-2.5 h-8 rounded-lg bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 text-xs font-black disabled:opacity-50">+1회 사용</button>
+                                    <button type="button" onClick={() => handleCompleteRewardTransaction(item)} disabled={isProcessing} className="px-2.5 h-8 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-xs font-black disabled:opacity-50">사용완</button>
+                                    <button type="button" onClick={() => handleReturnRewardTransaction(item)} disabled={isProcessing} className="px-2.5 h-8 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 text-xs font-black disabled:opacity-50">돌려주기</button>
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -3351,16 +3424,20 @@
                                   <div className="flex flex-wrap gap-1 mb-2">
                                     <span className="bg-rose-50 text-rose-600 border border-rose-100 rounded-full px-2 py-0.5 text-[11px] font-black">상품: {getTransactionRewardName(t)}</span>
                                     {t.rewardRecipientName && <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2 py-0.5 text-[11px] font-black">받는 친구: {t.rewardRecipientName}</span>}
-                                    {t.rewardLimit && <span className="bg-slate-50 text-slate-500 border border-slate-100 rounded-full px-2 py-0.5 text-[11px] font-black">제한 {t.rewardLimit}회</span>}
+                                    {t.rewardLimit && <span className="bg-slate-50 text-slate-500 border border-slate-100 rounded-full px-2 py-0.5 text-[11px] font-black">발급 제한 {t.rewardLimit}회</span>}
+                                    {getRewardUseLimit(t) > 1 && <span className="bg-sky-50 text-sky-700 border border-sky-100 rounded-full px-2 py-0.5 text-[11px] font-black">사용 {getRewardUsedCount(t)}/{getRewardUseLimit(t)}회</span>}
                                     <span className={'border rounded-full px-2 py-0.5 text-[11px] font-black ' + getRewardStatusMeta(t).className}>{getRewardStatusMeta(t).label}</span>
                                   </div>
                                 )}
                                 <p className="text-xs text-slate-400"><Icon name="clock" size={10} className="inline mr-1" />{t.timestamp ? new Date(t.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '시간 기록 없음'}</p>
                               </div>
-                              <div className="flex items-center gap-2 shrink-0">
+                              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
                                 <div className={`font-black ${t.type === 'earn' ? 'text-green-600' : 'text-rose-600'}`}>
                                   {t.type === 'earn' ? '+' : '-'}{t.amount}P
                                 </div>
+                                {isTeacher && getTransactionRewardName(t) && getRewardTransactionStatus(t) === 'available' && getRewardRemainingUseCount(t) > 0 && (
+                                  <button type="button" onClick={() => handleIncrementRewardUse(t)} disabled={isProcessing} className="px-2.5 h-9 rounded-xl bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 text-xs font-black disabled:opacity-50" title="상품 사용 횟수 1회 기록">+1회 사용</button>
+                                )}
                                 {isTeacher && getTransactionRewardName(t) && getRewardTransactionStatus(t) === 'available' && (
                                   <button type="button" onClick={() => handleCompleteRewardTransaction(t)} disabled={isProcessing} className="px-2.5 h-9 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-xs font-black disabled:opacity-50" title="상품 사용 완료 처리">사용완</button>
                                 )}
