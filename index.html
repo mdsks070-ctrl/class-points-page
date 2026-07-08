@@ -183,6 +183,13 @@
       { name: '최수호', gender: '남' }, { name: '최준혁', gender: '남' }, { name: '최지안', gender: '여' },
       { name: '황아영', gender: '여' }, { name: '황재준', gender: '남' }, { name: '박라희', gender: '여' }
     ];
+    const rewardQuickItems = [
+      { name: '선곡권 3곡', cost: 400, limit: '' },
+      { name: '포인트 선물권', cost: 400, limit: '' },
+      { name: '옆 자리 선택', cost: 400, limit: '' },
+      { name: '당첨', cost: 400, limit: '' },
+      { name: '쉬는시간 2분', cost: 400, limit: '' }
+    ];
     // 화면에 별도 항목으로 보여줄 현재 월의 1인 1역 재투표 고유 키
     const getCurrentOneRoleVoteMeta = () => {
       const now = new Date();
@@ -260,6 +267,8 @@
       const [pointModalTab, setPointModalTab] = useState('history');
       const [amount, setAmount] = useState('');
       const [desc, setDesc] = useState('');
+      const [rewardForm, setRewardForm] = useState({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+      const [rewardFeedbackMsg, setRewardFeedbackMsg] = useState('');
       // ===== 일괄 포인트 지급 관련 상태 =====
       const [bulkOpen, setBulkOpen] = useState(false);
       const [bulkAmount, setBulkAmount] = useState('');
@@ -460,6 +469,104 @@
         }
         setIsProcessing(false);
       };
+      const normalizeRewardName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+      const getTransactionRewardName = (transaction) => {
+        const directName = normalizeRewardName(transaction.rewardName);
+        if (directName) return directName;
+        const description = String(transaction.description || '');
+        const match = description.match(/^뽑기:\s*(.+)$/);
+        return match ? normalizeRewardName(match[1]) : '';
+      };
+      const getRewardUsageTransactions = (rewardName) => {
+        const normalized = normalizeRewardName(rewardName);
+        if (!normalized) return [];
+        return transactions.filter(transaction => transaction.type === 'spend' && getTransactionRewardName(transaction) === normalized);
+      };
+      const getRewardUsageLimit = (rewardName, fallbackLimit = '') => {
+        const directLimit = parseInt(fallbackLimit, 10);
+        if (!isNaN(directLimit) && directLimit > 0) return directLimit;
+        const savedLimit = getRewardUsageTransactions(rewardName)
+          .map(transaction => ({ limit: parseInt(transaction.rewardLimit, 10), timestamp: transaction.timestamp || 0 }))
+          .filter(item => !isNaN(item.limit) && item.limit > 0)
+          .sort((a, b) => b.timestamp - a.timestamp)[0];
+        return savedLimit ? savedLimit.limit : 0;
+      };
+      const getRewardUsageStatus = (rewardName, fallbackLimit = '') => {
+        const used = getRewardUsageTransactions(rewardName).length;
+        const limit = getRewardUsageLimit(rewardName, fallbackLimit);
+        return { used, limit, remaining: limit > 0 ? Math.max(0, limit - used) : null };
+      };
+      const getRewardCatalogStats = () => {
+        const names = [...new Set([
+          ...rewardQuickItems.map(item => item.name),
+          ...transactions.map(getTransactionRewardName).filter(Boolean)
+        ])];
+        return names.map(name => ({ name, ...getRewardUsageStatus(name) })).sort((a, b) => a.name.localeCompare(b.name));
+      };
+      const getRewardRecipientName = (recipientId = rewardForm.recipientId) => {
+        if (!recipientId || recipientId === 'self') return selectedStudent?.name || '';
+        const recipient = students.find(student => student.id === recipientId);
+        return recipient?.name || selectedStudent?.name || '';
+      };
+      const fillRewardQuickItem = (item) => {
+        setRewardForm(prev => ({
+          ...prev,
+          name: item.name,
+          cost: String(item.cost || 400),
+          limit: item.limit ? String(item.limit) : (normalizeRewardName(prev.name) === item.name ? prev.limit : ''),
+          memo: ''
+        }));
+        setRewardFeedbackMsg('');
+      };
+      const handleRewardSpend = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (!selectedStudent || isProcessing) return;
+        const rewardName = normalizeRewardName(rewardForm.name);
+        const parsedCost = parseInt(rewardForm.cost, 10);
+        const parsedLimit = parseInt(rewardForm.limit, 10);
+        const cleanMemo = String(rewardForm.memo || '').trim();
+        const recipientName = getRewardRecipientName();
+        if (!rewardName) { setRewardFeedbackMsg('상품명을 입력해주세요.'); return; }
+        if (isNaN(parsedCost) || parsedCost <= 0) { setRewardFeedbackMsg('차감 포인트를 올바르게 입력해주세요.'); return; }
+        if ((selectedStudent.remaining || 0) < parsedCost) { setRewardFeedbackMsg('잔여 포인트가 부족합니다.'); return; }
+        const rewardStatus = getRewardUsageStatus(rewardName, rewardForm.limit);
+        if (rewardStatus.limit > 0 && rewardStatus.used >= rewardStatus.limit) {
+          setRewardFeedbackMsg("'" + rewardName + "' 상품은 정해진 사용 횟수를 모두 사용했습니다.");
+          return;
+        }
+        setIsProcessing(true);
+        setRewardFeedbackMsg('상품 사용을 기록하는 중입니다...');
+        try {
+          const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
+          const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', selectedStudent.id) : doc(db, 'students', selectedStudent.id);
+          const isGift = recipientName && recipientName !== selectedStudent.name;
+          const descriptionParts = ['상품 사용: ' + rewardName];
+          if (isGift) descriptionParts.push('받는 친구: ' + recipientName);
+          if (cleanMemo) descriptionParts.push(cleanMemo);
+          await addDoc(historyPath, {
+            studentId: selectedStudent.id,
+            studentName: selectedStudent.name,
+            type: 'spend',
+            amount: parsedCost,
+            description: descriptionParts.join(' · '),
+            rewardName,
+            rewardRecipientId: rewardForm.recipientId || 'self',
+            rewardRecipientName: recipientName || selectedStudent.name,
+            rewardLimit: (!isNaN(parsedLimit) && parsedLimit > 0) ? parsedLimit : null,
+            rewardMemo: cleanMemo,
+            timestamp: Date.now()
+          });
+          await updateDoc(studentDocRef, { remaining: (selectedStudent.remaining || 0) - parsedCost, cumulative: selectedStudent.cumulative || 0 });
+          setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
+          setRewardFeedbackMsg('상품 사용 기록을 저장했습니다.');
+          setPointModalTab('history');
+          setTimeout(() => setRewardFeedbackMsg(''), 2500);
+        } catch (error) {
+          console.error(error);
+          setRewardFeedbackMsg('상품 사용 기록 저장 중 오류가 발생했습니다.');
+        }
+        setIsProcessing(false);
+      };
       const handleCancelTransaction = async (transaction) => {
         if (!isTeacher || !selectedStudent || isProcessing) return;
         const targetStudent = students.find(s => s.id === transaction.studentId);
@@ -541,11 +648,15 @@
       const openStudentModal = (student) => {
         setSelectedStudent(student);
         setPointModalTab(isTeacher ? 'earn' : 'history');
+        setRewardFeedbackMsg('');
+        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
       };
       const closeModal = () => {
         setSelectedStudent(null);
         setPointModalTab('history');
         setAmount(''); setDesc('');
+        setRewardFeedbackMsg('');
+        setRewardForm({ name: '', cost: '400', recipientId: 'self', limit: '', memo: '' });
       };
       // ---------------- [2. 영상 업로드 및 관리 로직] ----------------
       const handleVideoUpload = async (e) => {
@@ -3049,7 +3160,7 @@
           {/* ===== 포인트 관리자 전용 모달 창 ===== */}
           {selectedStudent && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-              <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="bg-indigo-50 p-6 border-b border-indigo-100 relative">
                   <button onClick={closeModal} className="absolute top-4 right-4 text-indigo-400 hover:text-indigo-700"><Icon name="xmark" size={24} /></button>
                   <h2 className="text-2xl font-black text-indigo-900 mb-1 flex items-center">
@@ -3065,7 +3176,7 @@
                   {isTeacher && (
                     <>
                       <button onClick={() => setPointModalTab('earn')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'earn' ? 'text-green-600 border-b-2 border-green-600 bg-green-50' : 'text-slate-500'}`}><Icon name="plus" size={16} className="mr-1" /> 적립</button>
-                      <button onClick={() => setPointModalTab('spend')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'spend' ? 'text-rose-600 border-b-2 border-rose-600 bg-rose-50' : 'text-slate-500'}`}><Icon name="minus" size={16} className="mr-1" /> 사용</button>
+                      <button onClick={() => setPointModalTab('spend')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'spend' ? 'text-rose-600 border-b-2 border-rose-600 bg-rose-50' : 'text-slate-500'}`}><Icon name="gift" size={16} className="mr-1" /> 상품</button>
                     </>
                   )}
                   <button onClick={() => setPointModalTab('history')} className={`flex-1 py-3 text-sm font-bold flex justify-center items-center ${pointModalTab === 'history' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500'}`}><Icon name="clock-rotate-left" size={16} className="mr-1" /> 전체 내역</button>
@@ -3081,21 +3192,81 @@
                     </div>
                   )}
                   {pointModalTab === 'spend' && isTeacher && (
-                    <div>
-                      <div className="bg-rose-100/50 border border-rose-200 rounded-2xl p-4 mb-6">
-                        <h4 className="font-bold text-rose-800 flex items-center mb-3"><Icon name="gift" size={16} className="mr-1" /> 400P 퀵 뽑기 보상</h4>
+                    <div className="space-y-5">
+                      <div className="bg-rose-100/50 border border-rose-200 rounded-2xl p-4">
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <h4 className="font-bold text-rose-800 flex items-center"><Icon name="gift" size={16} className="mr-1" /> 상품 사용 기록</h4>
+                            <p className="text-xs text-rose-700 mt-1 leading-relaxed">구매 학생은 포인트가 차감되고, 상품을 친구에게 준 경우 받는 친구까지 함께 기록합니다.</p>
+                          </div>
+                          <div className="bg-white border border-rose-200 rounded-xl px-3 py-2 text-xs font-black text-rose-700 shrink-0">상품 관리</div>
+                        </div>
                         <div className="flex flex-wrap gap-2">
-                          {['선곡권 3곡', '포인트 선물권', '옆 자리 선택', '당첨', '쉬는시간 2분'].map((item) => (
-                            <button key={item} onClick={() => handleTransaction('spend', '400', `뽑기: ${item}`)} disabled={isProcessing || (selectedStudent.remaining || 0) < 400} className="bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm disabled:opacity-50">{item}</button>
+                          {rewardQuickItems.map((item) => (
+                            <button key={item.name} type="button" onClick={() => fillRewardQuickItem(item)} disabled={isProcessing} className="bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 text-xs font-bold py-2 px-3 rounded-lg shadow-sm disabled:opacity-50">
+                              {item.name} · {item.cost}P
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {rewardFeedbackMsg && (
+                        <div className="bg-white border border-rose-200 text-rose-700 font-bold text-sm rounded-2xl p-3 text-center shadow-sm">
+                          {rewardFeedbackMsg}
+                        </div>
+                      )}
+                      <form onSubmit={handleRewardSpend} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">상품명</label>
+                            <input type="text" value={rewardForm.name} onChange={(e) => { setRewardForm({ ...rewardForm, name: e.target.value }); setRewardFeedbackMsg(''); }} placeholder="예: 선곡권 3곡" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">차감 포인트</label>
+                            <input type="number" min="1" value={rewardForm.cost} onChange={(e) => setRewardForm({ ...rewardForm, cost: e.target.value })} placeholder="예: 400" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">받는 친구</label>
+                            <select value={rewardForm.recipientId} onChange={(e) => setRewardForm({ ...rewardForm, recipientId: e.target.value })} className="w-full border rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+                              <option value="self">본인이 사용</option>
+                              {students.filter(student => student.id !== selectedStudent.id).sort((a, b) => a.name.localeCompare(b.name)).map(student => <option key={student.id} value={student.id}>{student.name}에게 주기</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-bold text-slate-700 mb-1">사용 가능 횟수</label>
+                            <input type="number" min="1" value={rewardForm.limit} onChange={(e) => setRewardForm({ ...rewardForm, limit: e.target.value })} placeholder="비워두면 제한 없음" className="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                          </div>
+                        </div>
+                        {rewardForm.name.trim() && (() => {
+                          const status = getRewardUsageStatus(rewardForm.name, rewardForm.limit);
+                          return (
+                            <div className="bg-rose-50 border border-rose-100 rounded-2xl p-3 text-sm font-bold text-rose-800 flex flex-wrap gap-2 justify-between">
+                              <span>{normalizeRewardName(rewardForm.name)} 사용 {status.used}회</span>
+                              <span>{status.limit > 0 ? '총 ' + status.limit + '회 · 남은 ' + status.remaining + '회' : '횟수 제한 없음'}</span>
+                            </div>
+                          );
+                        })()}
+                        <textarea value={rewardForm.memo} onChange={(e) => setRewardForm({ ...rewardForm, memo: e.target.value })} placeholder="메모 예: 쉬는시간에 사용, 친구에게 양도 등" className="w-full border rounded-xl px-4 py-3 min-h-[78px] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                        <button type="submit" disabled={isProcessing} className="w-full bg-rose-600 text-white font-bold py-4 rounded-xl shadow-md disabled:opacity-50">
+                          {isProcessing ? '기록 중...' : '상품 사용 기록하고 포인트 차감하기'}
+                        </button>
+                      </form>
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                        <h4 className="font-black text-slate-800 mb-3 flex items-center"><Icon name="clipboard-list" size={15} className="mr-2 text-slate-500" /> 상품별 사용 현황</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {getRewardCatalogStats().map(item => (
+                            <div key={item.name} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-700 truncate">{item.name}</span>
+                              <span className="text-xs font-black text-slate-500 shrink-0">{item.limit > 0 ? item.used + '/' + item.limit + '회' : item.used + '회'}</span>
+                            </div>
                           ))}
                         </div>
                       </div>
                       <div className="border-t border-slate-200 pt-4">
-                        <label className="block text-sm font-bold text-slate-700 mb-1">수동 차감 금액</label>
-                        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 100" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-rose-500" />
-                        <label className="block text-sm font-bold text-slate-700 mb-1">사용 내역</label>
-                        <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 연필 구매 등" className="w-full border rounded-xl px-4 py-3 mb-4 focus:ring-2 focus:ring-rose-500" />
-                        <button onClick={() => handleTransaction('spend')} disabled={isProcessing} className="w-full bg-rose-600 text-white font-bold py-4 rounded-xl shadow-md">포인트 차감하기</button>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">기타 차감 금액</label>
+                        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="예: 100" className="w-full border rounded-xl px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                        <label className="block text-sm font-bold text-slate-700 mb-1">기타 사용 내역</label>
+                        <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 연필 구매 등" className="w-full border rounded-xl px-4 py-3 mb-4 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                        <button onClick={() => handleTransaction('spend')} disabled={isProcessing} className="w-full bg-slate-700 text-white font-bold py-4 rounded-xl shadow-md disabled:opacity-50">기타 포인트 차감하기</button>
                       </div>
                     </div>
                   )}
@@ -3109,6 +3280,13 @@
                             <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="font-bold text-slate-800 text-sm mb-1">{t.description}</p>
+                                {t.rewardName && (
+                                  <div className="flex flex-wrap gap-1 mb-2">
+                                    <span className="bg-rose-50 text-rose-600 border border-rose-100 rounded-full px-2 py-0.5 text-[11px] font-black">상품: {t.rewardName}</span>
+                                    {t.rewardRecipientName && <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-2 py-0.5 text-[11px] font-black">받는 친구: {t.rewardRecipientName}</span>}
+                                    {t.rewardLimit && <span className="bg-slate-50 text-slate-500 border border-slate-100 rounded-full px-2 py-0.5 text-[11px] font-black">제한 {t.rewardLimit}회</span>}
+                                  </div>
+                                )}
                                 <p className="text-xs text-slate-400"><Icon name="clock" size={10} className="inline mr-1" />{t.timestamp ? new Date(t.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '시간 기록 없음'}</p>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
