@@ -157,6 +157,36 @@
         </div>
       );
     });
+
+    // 학생 작품은 같은 출처 권한을 주지 않은 sandbox 안에서만 실행합니다.
+    const HtmlProjectFrame = React.memo(function HtmlProjectFrame({ project }) {
+      const [frameUrl, setFrameUrl] = useState('');
+      useEffect(() => {
+        const source = String(project.code || '');
+        const fullDocument = source.toLowerCase().includes('<html')
+          ? source
+          : '<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body>' + source + '</body></html>';
+        const blob = new Blob([fullDocument], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        setFrameUrl(url);
+        return () => URL.revokeObjectURL(url);
+      }, [project.id, project.code]);
+
+      if (!frameUrl) {
+        return <div className="w-full h-full flex items-center justify-center bg-white text-slate-400 font-bold">작품을 여는 중입니다...</div>;
+      }
+      return (
+        <iframe
+          src={frameUrl}
+          title={project.title || 'HTML 작품'}
+          className="w-full h-full border-0 bg-white"
+          sandbox="allow-scripts"
+          allow="fullscreen"
+          allowFullScreen
+          referrerPolicy="no-referrer"
+        ></iframe>
+      );
+    });
     // 선생님 Firebase 프로젝트 설정 적용
     const isCanvasEnvironment = typeof __firebase_config !== 'undefined';
     const firebaseConfig = isCanvasEnvironment ? JSON.parse(__firebase_config) : {
@@ -269,6 +299,12 @@
       const [desc, setDesc] = useState('');
       const [rewardForm, setRewardForm] = useState({ name: '', cost: '400', recipientId: 'self', limit: '', useLimit: '', memo: '' });
       const [rewardFeedbackMsg, setRewardFeedbackMsg] = useState('');
+
+      // ===== HTML 작품함 관련 상태 =====
+      const [htmlProjects, setHtmlProjects] = useState([]);
+      const [htmlProjectForm, setHtmlProjectForm] = useState({ studentName: '', title: '', code: '' });
+      const [htmlProjectFeedback, setHtmlProjectFeedback] = useState('');
+      const [runningHtmlProject, setRunningHtmlProject] = useState(null);
       // ===== 일괄 포인트 지급 관련 상태 =====
       const [bulkOpen, setBulkOpen] = useState(false);
       const [bulkAmount, setBulkAmount] = useState('');
@@ -320,6 +356,7 @@
         const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
         const linksPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'links') : collection(db, 'links');
         const videosPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'videos') : collection(db, 'videos');
+        const htmlProjectsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects') : collection(db, 'htmlProjects');
 
         const unsubSurveys = onSnapshot(surveyPath, (snapshot) => {
           const data = [];
@@ -391,7 +428,16 @@
           data.sort((a, b) => b.timestamp - a.timestamp);
           setVideos(data);
         });
-        return () => { unsubSurveys(); unsubSurveyBoards(); unsubSurveyResponses(); unsubWorldcupPolls(); unsubWorldcupResponses(); unsubWorldcupLiveVotes(); unsubPairPhotoRequests(); unsubStudents(); unsubHistory(); unsubLinks(); unsubVideos(); };
+        const unsubHtmlProjects = onSnapshot(htmlProjectsPath, (snapshot) => {
+          const data = [];
+          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          setHtmlProjects(data);
+        }, (error) => {
+          console.error('HTML 작품함 불러오기 오류:', error);
+          setHtmlProjectFeedback('작품함을 불러오지 못했습니다. 잠시 후 다시 열어주세요.');
+        });
+        return () => { unsubSurveys(); unsubSurveyBoards(); unsubSurveyResponses(); unsubWorldcupPolls(); unsubWorldcupResponses(); unsubWorldcupLiveVotes(); unsubPairPhotoRequests(); unsubStudents(); unsubHistory(); unsubLinks(); unsubVideos(); unsubHtmlProjects(); };
       }, [user]);
       useEffect(() => {
         const timer = setInterval(() => setWorldcupTick(Date.now()), 1000);
@@ -2147,6 +2193,80 @@
         setSurveyFeedbackMsg('1인 1역 재투표 CSV 파일을 내려받았습니다.');
         setTimeout(() => setSurveyFeedbackMsg(''), 3500);
       };
+
+      // ===== HTML 작품함 로직 =====
+      const htmlProjectAuthors = (students.length > 0 ? students : classRoster)
+        .map((student) => student.name)
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .sort((a, b) => a.localeCompare(b));
+      const publishedHtmlProjects = htmlProjects.filter((project) => project.isPublished);
+
+      const handleHtmlProjectSubmit = async (event) => {
+        event.preventDefault();
+        if (isProcessing) return;
+        const studentName = String(htmlProjectForm.studentName || '').trim();
+        const title = String(htmlProjectForm.title || '').trim();
+        const code = String(htmlProjectForm.code || '').trim();
+        if (!studentName) { setHtmlProjectFeedback('이름을 선택해주세요.'); return; }
+        if (!title) { setHtmlProjectFeedback('작품 제목을 입력해주세요.'); return; }
+        if (!code) { setHtmlProjectFeedback('실행할 HTML 코드를 붙여넣어주세요.'); return; }
+        if (code.length > 150000) { setHtmlProjectFeedback('코드가 너무 깁니다. 15만 자 이내로 제출해주세요.'); return; }
+
+        setIsProcessing(true);
+        setHtmlProjectFeedback('작품을 제출하는 중입니다...');
+        try {
+          const htmlProjectsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects') : collection(db, 'htmlProjects');
+          await addDoc(htmlProjectsPath, {
+            studentName,
+            title,
+            code,
+            isPublished: false,
+            timestamp: Date.now()
+          });
+          setHtmlProjectForm({ studentName: '', title: '', code: '' });
+          setHtmlProjectFeedback('제출했습니다. 선생님 확인 후 작품함에 공개됩니다.');
+          setTimeout(() => setHtmlProjectFeedback(''), 4000);
+        } catch (error) {
+          console.error(error);
+          setHtmlProjectFeedback('제출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+        }
+        setIsProcessing(false);
+      };
+
+      const handleToggleHtmlProjectVisibility = async (project) => {
+        if (!isTeacher || isProcessing) return;
+        setIsProcessing(true);
+        try {
+          const projectRef = isCanvasEnvironment
+            ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
+            : doc(db, 'htmlProjects', project.id);
+          await updateDoc(projectRef, {
+            isPublished: !project.isPublished,
+            publishedAt: project.isPublished ? null : Date.now()
+          });
+        } catch (error) {
+          console.error(error);
+          setHtmlProjectFeedback('공개 상태 변경 중 오류가 발생했습니다.');
+        }
+        setIsProcessing(false);
+      };
+
+      const handleDeleteHtmlProject = async (project) => {
+        if (!isTeacher || isProcessing) return;
+        if (!window.confirm('이 HTML 작품을 삭제할까요? 삭제하면 되돌릴 수 없습니다.')) return;
+        setIsProcessing(true);
+        try {
+          const projectRef = isCanvasEnvironment
+            ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
+            : doc(db, 'htmlProjects', project.id);
+          await deleteDoc(projectRef);
+          if (runningHtmlProject && runningHtmlProject.id === project.id) setRunningHtmlProject(null);
+        } catch (error) {
+          console.error(error);
+          setHtmlProjectFeedback('작품 삭제 중 오류가 발생했습니다.');
+        }
+        setIsProcessing(false);
+      };
       // ===== UI 렌더링 =====
       const tabActiveTone = {
         points: 'from-amber-400 to-orange-500',
@@ -2157,7 +2277,8 @@
         links: 'from-sky-400 to-blue-500',
         survey: 'from-blue-400 to-indigo-500',
         hiclass: 'from-slate-600 to-slate-800',
-        approval: 'from-indigo-500 to-violet-600'
+        approval: 'from-indigo-500 to-violet-600',
+        htmlProjects: 'from-cyan-500 to-blue-600'
       };
       const TabButton = ({ id, iconName, label }) => (
         <button onClick={() => setActiveTab(id)} className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-2xl font-bold transition-all duration-200 ${ activeTab === id ? `bg-gradient-to-br ${tabActiveTone[id] || 'from-blue-500 to-indigo-500'} text-white shadow-lg scale-[1.04] -translate-y-0.5` : 'bg-white/80 backdrop-blur text-slate-500 hover:bg-white hover:-translate-y-0.5 border border-white shadow-sm' }`}>
@@ -2183,12 +2304,13 @@
             </div>
           </header>
           <main className="max-w-4xl mx-auto px-4">
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-4 mb-8">
+            <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2 sm:gap-4 mb-8">
               <TabButton id="points" iconName="coins" label="포인트" />
               <TabButton id="videos" iconName="video" label="우리반 영상" />
               <TabButton id="photos" iconName="image" label="사진 보기" />
               <TabButton id="submit" iconName="camera" label="사진 제출" />
               <TabButton id="videoSubmit" iconName="cloud-arrow-up" label="영상 제출" />
+              <TabButton id="htmlProjects" iconName="code" label="HTML 작품" />
               <TabButton id="links" iconName="link" label="학급 링크" />
               <TabButton id="survey" iconName="clipboard-list" label="설문" />
               <TabButton id="hiclass" iconName="mobile-screen-button" label="하이클래스" />
@@ -2414,6 +2536,159 @@
                     )}
                   </div>
                   <PhotoAppFrame mode="submit" title="6학년 4반 Google Drive 영상 제출함" minHeight="980px" tone="videos" />
+                </div>
+              )}
+
+              {/* === HTML 작품함 탭 === */}
+              {activeTab === 'htmlProjects' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-7 border-b pb-5">
+                    <div>
+                      <div className="inline-flex items-center bg-cyan-600 text-white text-xs font-black px-3 py-1 rounded-full mb-2">우리 반 HTML 작품</div>
+                      <h2 className="text-xl font-black flex items-center text-slate-800">
+                        <Icon name="code" className="mr-2 text-cyan-600" />HTML 작품함
+                      </h2>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-black text-slate-600 shrink-0">
+                      공개 작품 {publishedHtmlProjects.length}개
+                    </div>
+                  </div>
+
+                  <section className="mb-10">
+                    <h3 className="text-base font-black text-slate-800 mb-4 flex items-center">
+                      <Icon name="play" size={14} className="mr-2 text-blue-600" />친구 작품 실행하기
+                    </h3>
+                    {publishedHtmlProjects.length === 0 ? (
+                      <div className="py-12 text-center bg-slate-50 border border-dashed border-slate-300 rounded-2xl text-slate-400">
+                        <Icon name="laptop-code" size={42} className="mb-3 opacity-50" />
+                        <p className="font-bold">아직 공개된 작품이 없습니다.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {publishedHtmlProjects.map((project) => (
+                          <article key={project.id} className="border border-slate-200 rounded-2xl p-5 bg-white shadow-sm flex flex-col min-h-[170px]">
+                            <div className="flex items-start justify-between gap-3 mb-5">
+                              <div className="min-w-0">
+                                <h4 className="font-black text-slate-800 text-lg break-words">{project.title}</h4>
+                                <p className="text-sm font-bold text-cyan-700 mt-1">{project.studentName}</p>
+                              </div>
+                              <span className="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
+                                <Icon name="code" size={17} />
+                              </span>
+                            </div>
+                            <div className="mt-auto flex items-center justify-between gap-3">
+                              <span className="text-xs text-slate-400">{project.timestamp ? new Date(project.timestamp).toLocaleDateString('ko-KR') : ''}</span>
+                              <button type="button" onClick={() => setRunningHtmlProject(project)} className="bg-blue-600 hover:bg-blue-700 text-white font-black px-4 py-2.5 rounded-xl text-sm shadow-sm">
+                                <Icon name="play" size={12} className="mr-1.5" /> 실행하기
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="border-t border-slate-200 pt-8 mb-10">
+                    <div className="mb-5">
+                      <h3 className="text-base font-black text-slate-800 flex items-center">
+                        <Icon name="paper-plane" size={15} className="mr-2 text-emerald-600" />내 작품 제출하기
+                      </h3>
+                    </div>
+                    {htmlProjectFeedback && (
+                      <div className="mb-4 bg-cyan-50 border border-cyan-200 text-cyan-800 font-bold text-sm rounded-2xl p-3 text-center">
+                        {htmlProjectFeedback}
+                      </div>
+                    )}
+                    <form onSubmit={handleHtmlProjectSubmit} className="space-y-4 bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-black text-slate-700 mb-1.5">이름</label>
+                          <select value={htmlProjectForm.studentName} onChange={(e) => setHtmlProjectForm({ ...htmlProjectForm, studentName: e.target.value })} className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required>
+                            <option value="">내 이름을 선택하세요</option>
+                            {htmlProjectAuthors.map((name) => <option key={name} value={name}>{name}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-black text-slate-700 mb-1.5">작품 제목</label>
+                          <input type="text" maxLength="60" value={htmlProjectForm.title} onChange={(e) => setHtmlProjectForm({ ...htmlProjectForm, title: e.target.value })} placeholder="예: 나만의 우주 여행" className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500" required />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-black text-slate-700 mb-1.5">HTML 코드</label>
+                        <textarea
+                          value={htmlProjectForm.code}
+                          onChange={(e) => setHtmlProjectForm({ ...htmlProjectForm, code: e.target.value })}
+                          maxLength="150000"
+                          spellCheck="false"
+                          placeholder="<!DOCTYPE html>부터 만든 코드를 붙여넣으세요."
+                          className="w-full min-h-[260px] border border-slate-300 rounded-xl px-4 py-3 bg-white font-mono text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-y"
+                          required
+                        ></textarea>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const code = String(htmlProjectForm.code || '').trim();
+                            if (!code) { setHtmlProjectFeedback('먼저 실행할 HTML 코드를 붙여넣어주세요.'); return; }
+                            setRunningHtmlProject({
+                              id: 'draft-' + Date.now(),
+                              title: String(htmlProjectForm.title || '').trim() || '작성 중인 작품',
+                              studentName: String(htmlProjectForm.studentName || '').trim(),
+                              code
+                            });
+                          }}
+                          className="sm:w-1/3 bg-white hover:bg-cyan-50 text-cyan-700 border border-cyan-300 font-black py-3.5 rounded-xl"
+                        >
+                          <Icon name="play" size={13} className="mr-1.5" /> 미리 실행
+                        </button>
+                        <button type="submit" disabled={isProcessing} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl disabled:opacity-50 shadow-sm">
+                          <Icon name="paper-plane" size={13} className="mr-1.5" /> {isProcessing ? '제출 중...' : '선생님께 작품 제출'}
+                        </button>
+                      </div>
+                    </form>
+                  </section>
+
+                  {isTeacher && (
+                    <section className="border-t border-slate-200 pt-8">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                        <h3 className="text-base font-black text-slate-800 flex items-center">
+                          <Icon name="shield-halved" size={15} className="mr-2 text-indigo-600" />제출 작품 관리
+                        </h3>
+                        <span className="text-xs font-black text-slate-500">전체 {htmlProjects.length}개 · 공개 대기 {htmlProjects.filter((project) => !project.isPublished).length}개</span>
+                      </div>
+                      {htmlProjects.length === 0 ? (
+                        <div className="py-9 text-center text-slate-400 bg-slate-50 border border-dashed border-slate-300 rounded-2xl font-bold">제출된 작품이 없습니다.</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {htmlProjects.map((project) => (
+                            <article key={project.id} className="border border-slate-200 rounded-2xl p-4 bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="font-black text-slate-800 break-words">{project.title}</h4>
+                                  <span className={project.isPublished ? "bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5 text-[11px] font-black" : "bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5 text-[11px] font-black"}>
+                                    {project.isPublished ? '공개 중' : '공개 대기'}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-slate-500 mt-1 font-bold">{project.studentName} · {project.timestamp ? new Date(project.timestamp).toLocaleString('ko-KR') : '시간 기록 없음'}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2 shrink-0">
+                                <button type="button" onClick={() => setRunningHtmlProject(project)} className="h-10 px-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-sm font-black">
+                                  <Icon name="play" size={11} className="mr-1" /> 실행
+                                </button>
+                                <button type="button" onClick={() => handleToggleHtmlProjectVisibility(project)} disabled={isProcessing} className={project.isPublished ? "h-10 px-3 rounded-xl bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100 text-sm font-black disabled:opacity-50" : "h-10 px-3 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-sm font-black disabled:opacity-50"}>
+                                  <Icon name={project.isPublished ? "eye-slash" : "eye"} size={11} className="mr-1" /> {project.isPublished ? '공개 중지' : '공개하기'}
+                                </button>
+                                <button type="button" onClick={() => handleDeleteHtmlProject(project)} disabled={isProcessing} className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 flex items-center justify-center disabled:opacity-50" title="작품 삭제">
+                                  <Icon name="trash-can" size={13} />
+                                </button>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  )}
                 </div>
               )}
               {/* === 승인 관리 탭: 선생님 모드에서만 표시 (keep-alive) === */}
@@ -3463,6 +3738,23 @@
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {runningHtmlProject && (
+            <div className="fixed inset-0 z-[100] bg-slate-950 p-2 sm:p-4 flex flex-col" role="dialog" aria-modal="true" aria-label="HTML 작품 실행 화면">
+              <div className="h-14 sm:h-16 flex items-center justify-between gap-3 px-2 sm:px-3 text-white shrink-0">
+                <div className="min-w-0">
+                  <h2 className="font-black truncate">{runningHtmlProject.title || 'HTML 작품'}</h2>
+                  {runningHtmlProject.studentName && <p className="text-xs text-slate-400 font-bold truncate">{runningHtmlProject.studentName}</p>}
+                </div>
+                <button type="button" onClick={() => setRunningHtmlProject(null)} className="w-11 h-11 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center shrink-0" title="실행 화면 닫기" aria-label="실행 화면 닫기">
+                  <Icon name="xmark" size={20} />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl">
+                <HtmlProjectFrame project={runningHtmlProject} />
               </div>
             </div>
           )}
