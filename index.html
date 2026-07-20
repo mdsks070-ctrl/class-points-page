@@ -43,6 +43,7 @@
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <!-- Firebase 로드: compat 방식이라 로컬 파일(file://)에서도 동작합니다 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -158,26 +159,258 @@
       );
     });
 
+
+    const ZIP_MAX_FILES = 300;
+    const ZIP_MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024;
+
+    const normalizeZipPath = (value) => {
+      const parts = String(value || '').replace(/\\/g, '/').split('/');
+      const normalized = [];
+      parts.forEach((part) => {
+        if (!part || part === '.') return;
+        if (part === '..') { normalized.pop(); return; }
+        normalized.push(part);
+      });
+      return normalized.join('/');
+    };
+
+    const getZipMimeType = (path) => {
+      const extension = String(path || '').toLowerCase().split('.').pop();
+      const types = {
+        html: 'text/html', htm: 'text/html', css: 'text/css', js: 'application/javascript',
+        mjs: 'application/javascript', json: 'application/json', txt: 'text/plain',
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+        webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
+        mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4',
+        mp4: 'video/mp4', webm: 'video/webm', woff: 'font/woff', woff2: 'font/woff2',
+        ttf: 'font/ttf', otf: 'font/otf', xml: 'application/xml', csv: 'text/csv'
+      };
+      return types[extension] || 'application/octet-stream';
+    };
+
+    const isExternalZipReference = (value) => {
+      const reference = String(value || '').trim();
+      return !reference || reference.startsWith('#') || reference.startsWith('data:') ||
+        reference.startsWith('blob:') || reference.startsWith('javascript:') ||
+        reference.startsWith('mailto:') || reference.startsWith('tel:') ||
+        /^[a-z][a-z0-9+.-]*:/i.test(reference) || reference.startsWith('//');
+    };
+
+    const resolveZipReference = (baseFile, reference) => {
+      if (isExternalZipReference(reference)) return '';
+      const cleanReference = String(reference).split('#')[0].split('?')[0];
+      const baseParts = normalizeZipPath(baseFile).split('/');
+      baseParts.pop();
+      if (cleanReference.startsWith('/')) return normalizeZipPath(cleanReference);
+      return normalizeZipPath(baseParts.concat(cleanReference.split('/')).join('/'));
+    };
+
+    const getRelativeZipPath = (fromFile, targetFile) => {
+      const fromParts = normalizeZipPath(fromFile).split('/');
+      fromParts.pop();
+      const targetParts = normalizeZipPath(targetFile).split('/');
+      let common = 0;
+      while (common < fromParts.length && common < targetParts.length && fromParts[common] === targetParts[common]) common += 1;
+      return '../'.repeat(fromParts.length - common) + targetParts.slice(common).join('/');
+    };
+
+    const asyncReplaceText = async (text, expression, resolver) => {
+      const matches = Array.from(String(text || '').matchAll(expression));
+      if (matches.length === 0) return String(text || '');
+      let result = '';
+      let cursor = 0;
+      for (const match of matches) {
+        result += String(text || '').slice(cursor, match.index);
+        result += await resolver(match);
+        cursor = match.index + match[0].length;
+      }
+      return result + String(text || '').slice(cursor);
+    };
+
+    const buildHtmlFromZip = async (zipInput) => {
+      if (!window.JSZip) throw new Error('ZIP 실행 도구를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.');
+      const archive = await window.JSZip.loadAsync(zipInput);
+      const entries = Object.values(archive.files).filter((entry) => {
+        const path = normalizeZipPath(entry.name);
+        return !entry.dir && path && !path.startsWith('__MACOSX/') && !path.endsWith('.DS_Store');
+      });
+      if (entries.length === 0) throw new Error('ZIP 파일 안에 실행할 파일이 없습니다.');
+      if (entries.length > ZIP_MAX_FILES) throw new Error('ZIP 안의 파일이 너무 많습니다. 300개 이하로 정리해주세요.');
+      const declaredSize = entries.reduce((sum, entry) => sum + Number(entry._data && entry._data.uncompressedSize || 0), 0);
+      if (declaredSize > ZIP_MAX_UNCOMPRESSED_BYTES) throw new Error('압축을 푼 파일 크기가 너무 큽니다. 전체 40MB 이하로 정리해주세요.');
+
+      const entryMap = new Map();
+      entries.forEach((entry) => entryMap.set(normalizeZipPath(entry.name), entry));
+      const paths = Array.from(entryMap.keys());
+      const indexCandidates = paths
+        .filter((path) => path.toLowerCase() === 'index.html' || path.toLowerCase().endsWith('/index.html'))
+        .sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
+      const htmlCandidates = paths.filter((path) => /\.html?$/i.test(path));
+      const indexPath = indexCandidates[0] || (htmlCandidates.length === 1 ? htmlCandidates[0] : '');
+      if (!indexPath) throw new Error('ZIP 안에서 index.html을 찾지 못했습니다.');
+
+      const textCache = new Map();
+      const dataUrlCache = new Map();
+      const readText = async (path) => {
+        const normalized = normalizeZipPath(path);
+        if (!textCache.has(normalized)) textCache.set(normalized, entryMap.get(normalized).async('string'));
+        return textCache.get(normalized);
+      };
+      const getDataUrl = async (path) => {
+        const normalized = normalizeZipPath(path);
+        if (!dataUrlCache.has(normalized)) {
+          dataUrlCache.set(normalized, (async () => {
+            const entry = entryMap.get(normalized);
+            if (!entry) return '';
+            const base64 = await entry.async('base64');
+            return 'data:' + getZipMimeType(normalized) + ';base64,' + base64;
+          })());
+        }
+        return dataUrlCache.get(normalized);
+      };
+      const resolveExistingPath = (baseFile, reference) => {
+        const resolved = resolveZipReference(baseFile, reference);
+        return resolved && entryMap.has(resolved) ? resolved : '';
+      };
+      const getReferenceCandidates = (baseFile, targetPath) => {
+        const relative = getRelativeZipPath(baseFile, targetPath);
+        const candidates = new Set([relative, targetPath, '/' + targetPath]);
+        if (relative && !relative.startsWith('../')) candidates.add('./' + relative);
+        return Array.from(candidates).filter(Boolean);
+      };
+      const rewriteScriptReferences = async (source, baseFile) => {
+        let rewritten = String(source || '');
+        for (const targetPath of paths) {
+          if (targetPath === normalizeZipPath(baseFile) || /\.html?$/i.test(targetPath)) continue;
+          const candidates = getReferenceCandidates(baseFile, targetPath);
+          const usedCandidates = candidates.filter((candidate) =>
+            rewritten.includes("'" + candidate + "'") || rewritten.includes('"' + candidate + '"')
+          );
+          if (usedCandidates.length === 0) continue;
+          const dataUrl = await getDataUrl(targetPath);
+          usedCandidates.forEach((candidate) => {
+            rewritten = rewritten.split("'" + candidate + "'").join("'" + dataUrl + "'");
+            rewritten = rewritten.split('"' + candidate + '"').join('"' + dataUrl + '"');
+          });
+        }
+        return rewritten;
+      };
+      const rewriteCssReferences = async (source, baseFile) => {
+        return asyncReplaceText(String(source || ''), /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, async (match) => {
+          const targetPath = resolveExistingPath(baseFile, match[2]);
+          if (!targetPath) return match[0];
+          return 'url("' + await getDataUrl(targetPath) + '")';
+        });
+      };
+
+      const indexHtml = await readText(indexPath);
+      const parsed = new DOMParser().parseFromString(indexHtml, 'text/html');
+      parsed.querySelectorAll('meta[http-equiv]').forEach((meta) => {
+        if (String(meta.getAttribute('http-equiv') || '').toLowerCase() === 'content-security-policy') meta.remove();
+      });
+      parsed.querySelectorAll('base').forEach((base) => base.remove());
+
+      for (const link of Array.from(parsed.querySelectorAll('link[href]'))) {
+        const targetPath = resolveExistingPath(indexPath, link.getAttribute('href'));
+        if (!targetPath) continue;
+        if (String(link.getAttribute('rel') || '').toLowerCase().includes('stylesheet')) {
+          const css = await rewriteCssReferences(await readText(targetPath), targetPath);
+          const style = parsed.createElement('style');
+          style.textContent = css;
+          link.replaceWith(style);
+        } else {
+          link.setAttribute('href', await getDataUrl(targetPath));
+        }
+      }
+
+      for (const script of Array.from(parsed.querySelectorAll('script'))) {
+        const sourcePath = script.getAttribute('src');
+        if (sourcePath) {
+          const targetPath = resolveExistingPath(indexPath, sourcePath);
+          if (!targetPath) continue;
+          const scriptText = await rewriteScriptReferences(await readText(targetPath), targetPath);
+          script.removeAttribute('src');
+          script.textContent = scriptText;
+        } else if (script.textContent) {
+          script.textContent = await rewriteScriptReferences(script.textContent, indexPath);
+        }
+      }
+
+      for (const style of Array.from(parsed.querySelectorAll('style'))) {
+        style.textContent = await rewriteCssReferences(style.textContent, indexPath);
+      }
+      for (const element of Array.from(parsed.querySelectorAll('[style]'))) {
+        element.setAttribute('style', await rewriteCssReferences(element.getAttribute('style'), indexPath));
+      }
+
+      const assetAttributes = ['src', 'poster', 'data'];
+      for (const attribute of assetAttributes) {
+        for (const element of Array.from(parsed.querySelectorAll('[' + attribute + ']'))) {
+          const targetPath = resolveExistingPath(indexPath, element.getAttribute(attribute));
+          if (targetPath) element.setAttribute(attribute, await getDataUrl(targetPath));
+        }
+      }
+
+      for (const element of Array.from(parsed.querySelectorAll('[href]'))) {
+        if (element.tagName === 'A' || element.tagName === 'LINK') continue;
+        const targetPath = resolveExistingPath(indexPath, element.getAttribute('href'));
+        if (targetPath) element.setAttribute('href', await getDataUrl(targetPath));
+      }
+
+      return '<!doctype html>\n' + parsed.documentElement.outerHTML;
+    };
+
     // 학생 작품은 같은 출처 권한을 주지 않은 sandbox 안에서만 실행합니다.
     const HtmlProjectFrame = React.memo(function HtmlProjectFrame({ project }) {
-      const [frameUrl, setFrameUrl] = useState('');
+      const [frameState, setFrameState] = useState({ url: '', error: '' });
       useEffect(() => {
-        const source = String(project.code || '');
-        const fullDocument = source.toLowerCase().includes('<html')
-          ? source
-          : '<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body>' + source + '</body></html>';
-        const blob = new Blob([fullDocument], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        setFrameUrl(url);
-        return () => URL.revokeObjectURL(url);
-      }, [project.id, project.code]);
+        let disposed = false;
+        let createdUrl = '';
+        setFrameState({ url: '', error: '' });
+        const prepareProject = async () => {
+          try {
+            let source = String(project.code || '');
+            if (!source && project.archiveUrl) {
+              const response = await fetch(project.archiveUrl);
+              if (!response.ok) throw new Error('ZIP 파일을 불러오지 못했습니다.');
+              source = await buildHtmlFromZip(await response.blob());
+            }
+            if (!source) throw new Error('실행할 작품 파일이 없습니다.');
+            const fullDocument = source.toLowerCase().includes('<html')
+              ? source
+              : '<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body>' + source + '</body></html>';
+            createdUrl = URL.createObjectURL(new Blob([fullDocument], { type: 'text/html;charset=utf-8' }));
+            if (disposed) {
+              URL.revokeObjectURL(createdUrl);
+              return;
+            }
+            setFrameState({ url: createdUrl, error: '' });
+          } catch (error) {
+            console.error(error);
+            if (!disposed) setFrameState({ url: '', error: error.message || '작품 실행 중 오류가 발생했습니다.' });
+          }
+        };
+        prepareProject();
+        return () => {
+          disposed = true;
+          if (createdUrl) URL.revokeObjectURL(createdUrl);
+        };
+      }, [project.id, project.code, project.archiveUrl]);
 
-      if (!frameUrl) {
-        return <div className="w-full h-full flex items-center justify-center bg-white text-slate-400 font-bold">작품을 여는 중입니다...</div>;
+      if (frameState.error) {
+        return (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-white text-rose-600 p-6 text-center">
+            <Icon name="triangle-exclamation" size={32} className="mb-3" />
+            <p className="font-black">{frameState.error}</p>
+          </div>
+        );
+      }
+      if (!frameState.url) {
+        return <div className="w-full h-full flex items-center justify-center bg-white text-slate-400 font-bold">게임 파일을 준비하는 중입니다...</div>;
       }
       return (
         <iframe
-          src={frameUrl}
+          src={frameState.url}
           title={project.title || 'HTML 작품'}
           className="w-full h-full border-0 bg-white"
           sandbox="allow-scripts"
@@ -302,8 +535,9 @@
 
       // ===== HTML 작품함 관련 상태 =====
       const [htmlProjects, setHtmlProjects] = useState([]);
-      const [htmlProjectForm, setHtmlProjectForm] = useState({ studentName: '', title: '', code: '', fileName: '', fileSize: 0 });
+      const [htmlProjectForm, setHtmlProjectForm] = useState({ studentName: '', title: '', code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null });
       const [htmlProjectFeedback, setHtmlProjectFeedback] = useState('');
+      const [htmlFileLoading, setHtmlFileLoading] = useState(false);
       const [runningHtmlProject, setRunningHtmlProject] = useState(null);
       const htmlFileInputRef = useRef(null);
       // ===== 일괄 포인트 지급 관련 상태 =====
@@ -2203,29 +2437,36 @@
       const publishedHtmlProjects = htmlProjects.filter((project) => project.isPublished);
 
 
+
+      const getEmptyHtmlProjectForm = () => ({
+        studentName: '', title: '', code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null
+      });
+
       const handleHtmlProjectFileSelect = async (event) => {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
         const lowerName = String(file.name || '').toLowerCase();
-        if (!lowerName.endsWith('.html') && !lowerName.endsWith('.htm')) {
+        const isZipFile = lowerName.endsWith('.zip');
+        const isHtmlFile = lowerName.endsWith('.html') || lowerName.endsWith('.htm');
+        if (!isZipFile && !isHtmlFile) {
           event.target.value = '';
-          setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0 }));
-          setHtmlProjectFeedback('HTML 파일(.html 또는 .htm)만 선택할 수 있습니다.');
+          setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
+          setHtmlProjectFeedback('HTML 또는 ZIP 파일만 선택할 수 있습니다.');
           return;
         }
-        if (file.size > 700 * 1024) {
+        const maxSize = isZipFile ? 10 * 1024 * 1024 : 700 * 1024;
+        if (file.size > maxSize) {
           event.target.value = '';
-          setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0 }));
-          setHtmlProjectFeedback('파일이 너무 큽니다. 700KB 이하의 HTML 파일을 선택해주세요.');
+          setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
+          setHtmlProjectFeedback(isZipFile ? 'ZIP 파일은 10MB 이하로 제출해주세요.' : 'HTML 파일은 700KB 이하로 제출해주세요.');
           return;
         }
+
+        setHtmlFileLoading(true);
+        setHtmlProjectFeedback(isZipFile ? 'ZIP 게임의 index.html과 연결 파일을 확인하는 중입니다...' : 'HTML 파일을 읽는 중입니다...');
         try {
-          const code = await file.text();
-          if (!String(code || '').trim()) {
-            event.target.value = '';
-            setHtmlProjectFeedback('내용이 없는 HTML 파일입니다.');
-            return;
-          }
+          const code = isZipFile ? await buildHtmlFromZip(file) : await file.text();
+          if (!String(code || '').trim()) throw new Error('내용이 없는 파일입니다.');
           const lastDot = file.name.lastIndexOf('.');
           const suggestedTitle = lastDot > 0 ? file.name.slice(0, lastDot) : file.name;
           setHtmlProjectForm((prev) => ({
@@ -2233,46 +2474,75 @@
             title: String(prev.title || '').trim() || suggestedTitle,
             code,
             fileName: file.name,
-            fileSize: file.size
+            fileSize: file.size,
+            projectType: isZipFile ? 'zip' : 'html',
+            archiveFile: isZipFile ? file : null
           }));
-          setHtmlProjectFeedback('HTML 파일을 불러왔습니다. 미리 실행하거나 바로 제출할 수 있습니다.');
+          setHtmlProjectFeedback(isZipFile
+            ? 'ZIP 게임을 불러왔습니다. 미리 실행한 뒤 제출할 수 있습니다.'
+            : 'HTML 파일을 불러왔습니다. 미리 실행하거나 바로 제출할 수 있습니다.');
         } catch (error) {
           console.error(error);
           event.target.value = '';
-          setHtmlProjectFeedback('HTML 파일을 읽지 못했습니다. 다른 파일로 다시 시도해주세요.');
+          setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
+          setHtmlProjectFeedback(error.message || '파일을 읽지 못했습니다. 다른 파일로 다시 시도해주세요.');
         }
+        setHtmlFileLoading(false);
       };
 
       const handleHtmlProjectSubmit = async (event) => {
         event.preventDefault();
-        if (isProcessing) return;
+        if (isProcessing || htmlFileLoading) return;
         const studentName = String(htmlProjectForm.studentName || '').trim();
         const title = String(htmlProjectForm.title || '').trim();
         const code = String(htmlProjectForm.code || '').trim();
         const fileName = String(htmlProjectForm.fileName || '').trim();
+        const projectType = htmlProjectForm.projectType === 'zip' ? 'zip' : 'html';
         if (!studentName) { setHtmlProjectFeedback('이름을 선택해주세요.'); return; }
         if (!title) { setHtmlProjectFeedback('작품 제목을 입력해주세요.'); return; }
-        if (!fileName || !code) { setHtmlProjectFeedback('먼저 HTML 파일을 선택해주세요.'); return; }
-        if (code.length > 700000) { setHtmlProjectFeedback('파일 내용이 너무 큽니다. 더 작은 HTML 파일을 선택해주세요.'); return; }
+        if (!fileName || !code) { setHtmlProjectFeedback('먼저 HTML 또는 ZIP 파일을 선택해주세요.'); return; }
+        if (projectType === 'html' && code.length > 700000) { setHtmlProjectFeedback('HTML 파일 내용이 너무 큽니다. 더 작은 파일을 선택해주세요.'); return; }
+        if (projectType === 'zip' && !htmlProjectForm.archiveFile) { setHtmlProjectFeedback('ZIP 파일을 다시 선택해주세요.'); return; }
 
         setIsProcessing(true);
-        setHtmlProjectFeedback('작품을 제출하는 중입니다...');
+        setHtmlProjectFeedback(projectType === 'zip' ? 'ZIP 게임 파일을 저장하는 중입니다...' : '작품을 제출하는 중입니다...');
+        let uploadedArchiveRef = null;
+        let projectSaved = false;
         try {
           const htmlProjectsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects') : collection(db, 'htmlProjects');
-          await addDoc(htmlProjectsPath, {
+          const projectData = {
             studentName,
             title,
-            code,
             originalFileName: fileName,
+            projectType,
             isPublished: false,
             timestamp: Date.now()
-          });
-          setHtmlProjectForm({ studentName: '', title: '', code: '', fileName: '', fileSize: 0 });
+          };
+
+          if (projectType === 'zip') {
+            const safeFileName = Array.from(fileName).map((character) => /[a-zA-Z0-9._-]/.test(character) ? character : '_').join('');
+            const archivePath = (isCanvasEnvironment ? 'artifacts/' + appId + '/' : '') + 'htmlProjects/' + Date.now() + '_' + safeFileName;
+            uploadedArchiveRef = ref(storage, archivePath);
+            const uploadTask = uploadBytesResumable(uploadedArchiveRef, htmlProjectForm.archiveFile);
+            await new Promise((resolve, reject) => uploadTask.on('state_changed', null, reject, resolve));
+            projectData.archiveUrl = await getDownloadURL(uploadedArchiveRef);
+            projectData.archivePath = archivePath;
+            projectData.code = '';
+          } else {
+            projectData.code = code;
+          }
+
+          await addDoc(htmlProjectsPath, projectData);
+          projectSaved = true;
+          setHtmlProjectForm(getEmptyHtmlProjectForm());
           if (htmlFileInputRef.current) htmlFileInputRef.current.value = '';
           setHtmlProjectFeedback('제출했습니다. 선생님 확인 후 작품함에 공개됩니다.');
           setTimeout(() => setHtmlProjectFeedback(''), 4000);
         } catch (error) {
           console.error(error);
+          if (uploadedArchiveRef && !projectSaved) {
+            try { await deleteObject(uploadedArchiveRef); } catch (cleanupError) { console.error(cleanupError); }
+          }
           setHtmlProjectFeedback('제출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
         }
         setIsProcessing(false);
@@ -2304,6 +2574,9 @@
           const projectRef = isCanvasEnvironment
             ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
             : doc(db, 'htmlProjects', project.id);
+          if (project.archivePath) {
+            try { await deleteObject(ref(storage, project.archivePath)); } catch (storageError) { console.error(storageError); }
+          }
           await deleteDoc(projectRef);
           if (runningHtmlProject && runningHtmlProject.id === project.id) setRunningHtmlProject(null);
         } catch (error) {
@@ -2659,28 +2932,29 @@
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-black text-slate-700 mb-1.5">HTML 파일</label>
+                        <label className="block text-sm font-black text-slate-700 mb-1.5">HTML 또는 ZIP 게임 파일</label>
                         <div className="border-2 border-dashed border-cyan-200 bg-white rounded-2xl p-4">
                           <input
                             ref={htmlFileInputRef}
                             type="file"
-                            accept=".html,.htm,text/html"
+                            accept=".html,.htm,.zip,text/html,application/zip"
                             onChange={handleHtmlProjectFileSelect}
+                            disabled={htmlFileLoading}
                             className="w-full text-sm text-slate-600 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:bg-cyan-600 file:text-white file:font-black hover:file:bg-cyan-700"
                             required
                           />
                           {htmlProjectForm.fileName ? (
                             <div className="mt-3 flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 text-emerald-800">
                               <span className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0">
-                                <Icon name="file-code" size={16} className="text-emerald-600" />
+                                <Icon name={htmlProjectForm.projectType === 'zip' ? 'file-zipper' : 'file-code'} size={16} className="text-emerald-600" />
                               </span>
                               <div className="min-w-0">
                                 <p className="font-black text-sm truncate">{htmlProjectForm.fileName}</p>
-                                <p className="text-xs font-bold text-emerald-600">{Math.max(1, Math.ceil((htmlProjectForm.fileSize || 0) / 1024))}KB · 실행 준비 완료</p>
+                                <p className="text-xs font-bold text-emerald-600">{htmlProjectForm.projectType === 'zip' ? 'ZIP 게임' : '단일 HTML'} · {Math.max(1, Math.ceil((htmlProjectForm.fileSize || 0) / 1024))}KB · 실행 준비 완료</p>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-3 text-xs font-bold text-slate-400">.html 또는 .htm 파일 · 최대 700KB</p>
+                            <p className="mt-3 text-xs font-bold text-slate-400">.html · .htm · .zip 지원 · ZIP 최대 10MB</p>
                           )}
                         </div>
                       </div>
@@ -2689,21 +2963,22 @@
                           type="button"
                           onClick={() => {
                             const code = String(htmlProjectForm.code || '').trim();
-                            if (!code) { setHtmlProjectFeedback('먼저 HTML 파일을 선택해주세요.'); return; }
+                            if (!code) { setHtmlProjectFeedback('먼저 HTML 또는 ZIP 파일을 선택해주세요.'); return; }
                             setRunningHtmlProject({
                               id: 'draft-' + Date.now(),
                               title: String(htmlProjectForm.title || '').trim() || '작성 중인 작품',
                               studentName: String(htmlProjectForm.studentName || '').trim(),
+                              projectType: htmlProjectForm.projectType,
                               code
                             });
                           }}
-                          disabled={!htmlProjectForm.code}
+                          disabled={htmlFileLoading || !htmlProjectForm.code}
                           className="sm:w-1/3 bg-white hover:bg-cyan-50 text-cyan-700 border border-cyan-300 font-black py-3.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          <Icon name="play" size={13} className="mr-1.5" /> 미리 실행
+                          <Icon name={htmlFileLoading ? "spinner" : "play"} size={13} className="mr-1.5" /> {htmlFileLoading ? '파일 확인 중...' : '미리 실행'}
                         </button>
-                        <button type="submit" disabled={isProcessing || !htmlProjectForm.code} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
-                          <Icon name="paper-plane" size={13} className="mr-1.5" /> {isProcessing ? '제출 중...' : '선생님께 작품 제출'}
+                        <button type="submit" disabled={isProcessing || htmlFileLoading || !htmlProjectForm.code} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black py-3.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">
+                          <Icon name="paper-plane" size={13} className="mr-1.5" /> {isProcessing ? '제출 중...' : htmlFileLoading ? '파일 확인 중...' : '선생님께 작품 제출'}
                         </button>
                       </div>
                     </form>
@@ -2731,7 +3006,7 @@
                                   </span>
                                 </div>
                                 <p className="text-sm text-slate-500 mt-1 font-bold">{project.studentName} · {project.timestamp ? new Date(project.timestamp).toLocaleString('ko-KR') : '시간 기록 없음'}</p>
-                                {project.originalFileName && <p className="text-xs text-cyan-700 mt-1 font-bold"><Icon name="file-code" size={10} className="mr-1" />{project.originalFileName}</p>}
+                                {project.originalFileName && <p className="text-xs text-cyan-700 mt-1 font-bold"><Icon name={project.projectType === 'zip' ? 'file-zipper' : 'file-code'} size={10} className="mr-1" />{project.originalFileName}</p>}
                               </div>
                               <div className="flex flex-wrap gap-2 shrink-0">
                                 <button type="button" onClick={() => setRunningHtmlProject(project)} className="h-10 px-3 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-sm font-black">
