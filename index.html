@@ -160,8 +160,8 @@
     });
 
 
-    const ZIP_MAX_FILES = 300;
-    const ZIP_MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024;
+    const ZIP_MAX_FILES = 500;
+    const ZIP_MAX_UNCOMPRESSED_BYTES = 80 * 1024 * 1024;
 
     const normalizeZipPath = (value) => {
       const parts = String(value || '').replace(/\\/g, '/').split('/');
@@ -235,9 +235,9 @@
         return !entry.dir && path && !path.startsWith('__MACOSX/') && !path.endsWith('.DS_Store');
       });
       if (entries.length === 0) throw new Error('ZIP 파일 안에 실행할 파일이 없습니다.');
-      if (entries.length > ZIP_MAX_FILES) throw new Error('ZIP 안의 파일이 너무 많습니다. 300개 이하로 정리해주세요.');
+      if (entries.length > ZIP_MAX_FILES) throw new Error('ZIP 안의 파일이 너무 많습니다. 500개 이하로 정리해주세요.');
       const declaredSize = entries.reduce((sum, entry) => sum + Number(entry._data && entry._data.uncompressedSize || 0), 0);
-      if (declaredSize > ZIP_MAX_UNCOMPRESSED_BYTES) throw new Error('압축을 푼 파일 크기가 너무 큽니다. 전체 40MB 이하로 정리해주세요.');
+      if (declaredSize > ZIP_MAX_UNCOMPRESSED_BYTES) throw new Error('압축을 푼 파일 크기가 너무 큽니다. 전체 80MB 이하로 정리해주세요.');
 
       const entryMap = new Map();
       entries.forEach((entry) => entryMap.set(normalizeZipPath(entry.name), entry));
@@ -2454,11 +2454,11 @@
           setHtmlProjectFeedback('HTML 또는 ZIP 파일만 선택할 수 있습니다.');
           return;
         }
-        const maxSize = isZipFile ? 10 * 1024 * 1024 : 700 * 1024;
+        const maxSize = isZipFile ? 30 * 1024 * 1024 : 700 * 1024;
         if (file.size > maxSize) {
           event.target.value = '';
           setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
-          setHtmlProjectFeedback(isZipFile ? 'ZIP 파일은 10MB 이하로 제출해주세요.' : 'HTML 파일은 700KB 이하로 제출해주세요.');
+          setHtmlProjectFeedback(isZipFile ? 'ZIP 파일은 30MB 이하로 제출해주세요.' : 'HTML 파일은 700KB 이하로 제출해주세요.');
           return;
         }
 
@@ -2954,7 +2954,7 @@
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-3 text-xs font-bold text-slate-400">.html · .htm · .zip 지원 · ZIP 최대 10MB</p>
+                            <p className="mt-3 text-xs font-bold text-slate-400">.html · .htm · .zip 지원 · ZIP 최대 30MB</p>
                           )}
                         </div>
                       </div>
