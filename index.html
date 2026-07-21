@@ -372,8 +372,10 @@
             let source = String(project.code || '');
             if (!source && project.archiveUrl) {
               const response = await fetch(project.archiveUrl);
-              if (!response.ok) throw new Error('ZIP 파일을 불러오지 못했습니다.');
-              source = await buildHtmlFromZip(await response.blob());
+              if (!response.ok) throw new Error('작품 파일을 불러오지 못했습니다.');
+              source = project.projectType === 'zip'
+                ? await buildHtmlFromZip(await response.blob())
+                : await response.text();
             }
             if (!source) throw new Error('실행할 작품 파일이 없습니다.');
             const fullDocument = source.toLowerCase().includes('<html')
@@ -395,7 +397,7 @@
           disposed = true;
           if (createdUrl) URL.revokeObjectURL(createdUrl);
         };
-      }, [project.id, project.code, project.archiveUrl]);
+      }, [project.id, project.code, project.archiveUrl, project.projectType]);
 
       if (frameState.error) {
         return (
@@ -979,6 +981,17 @@
         setIsProcessing(false);
       };
       const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+      const normalizeBulkStudentName = (value) => String(value || '').replace(/\s+/g, '');
+      const getBulkStudentMatches = (inputName) => {
+        const normalized = normalizeBulkStudentName(inputName);
+        if (!normalized) return [];
+        const exactMatches = students.filter((student) => normalizeBulkStudentName(student.name) === normalized);
+        if (exactMatches.length > 0) return exactMatches;
+        return students.filter((student) => {
+          const fullName = normalizeBulkStudentName(student.name);
+          return fullName.length > 1 && fullName.slice(1) === normalized;
+        });
+      };
       const getNamesByGender = (gender) => {
         return students.filter(s => !gender || s.gender === gender).sort((a, b) => a.name.localeCompare(b.name)).map(s => s.name).join(', ');
       };
@@ -986,7 +999,7 @@
         if (isProcessing) return;
         const parsedAmount = parseInt(bulkAmount, 10);
         const cleanDesc = String(bulkDesc || '').trim();
-        const names = String(bulkNames || '').split(/[\n,]+/).map(name => name.trim()).filter(Boolean);
+        const names = String(bulkNames || '').split(/[\s,]+/).map(name => name.trim()).filter(Boolean);
         if (isNaN(parsedAmount) || parsedAmount <= 0) {
           setBulkFeedbackMsg('올바른 포인트를 입력해주세요.'); return;
         }
@@ -996,24 +1009,42 @@
         if (names.length === 0) {
           setBulkFeedbackMsg('지급할 학생 이름을 입력해주세요.'); return;
         }
-        const missingNames = names.filter(name => !students.some(s => s.name === name));
+
+        const resolvedStudents = [];
+        const missingNames = [];
+        const ambiguousNames = [];
+        names.forEach((inputName) => {
+          const matches = getBulkStudentMatches(inputName);
+          if (matches.length === 0) missingNames.push(inputName);
+          else if (matches.length > 1) ambiguousNames.push(inputName + ' (' + matches.map(student => student.name).join('·') + ')');
+          else resolvedStudents.push(matches[0]);
+        });
         if (missingNames.length > 0) {
-          setBulkFeedbackMsg('명렬표에 없는 이름: ' + missingNames.join(', ')); return;
+          setBulkFeedbackMsg('명렬표에서 찾지 못한 이름: ' + missingNames.join(', ')); return;
         }
+        if (ambiguousNames.length > 0) {
+          setBulkFeedbackMsg('동명이어서 성까지 필요한 이름: ' + ambiguousNames.join(', ')); return;
+        }
+        const seenStudentIds = new Set();
+        const duplicateStudents = [];
+        resolvedStudents.forEach((student) => {
+          if (seenStudentIds.has(student.id)) duplicateStudents.push(student.name);
+          seenStudentIds.add(student.id);
+        });
+        if (duplicateStudents.length > 0) {
+          setBulkFeedbackMsg('같은 학생을 두 번 적었습니다: ' + [...new Set(duplicateStudents)].join(', ')); return;
+        }
+
         setIsProcessing(true);
         setBulkFeedbackMsg('일괄 지급을 진행 중입니다...');
-        let successCount = 0;
         try {
           const historyPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'transactions') : collection(db, 'transactions');
-          for (const name of names) {
-            const student = students.find(s => s.name === name);
-            if (!student) continue;
+          for (const student of resolvedStudents) {
             const studentDocRef = isCanvasEnvironment ? doc(db, 'artifacts', appId, 'public', 'data', 'students', student.id) : doc(db, 'students', student.id);
             const newRemaining = (student.remaining || 0) + parsedAmount;
             const newCumulative = (student.cumulative || 0) + parsedAmount;
             await updateDoc(studentDocRef, { remaining: newRemaining, cumulative: newCumulative });
             await addDoc(historyPath, { studentId: student.id, studentName: student.name, type: 'earn', amount: parsedAmount, description: cleanDesc, timestamp: Date.now() });
-            successCount += 1;
             await delay(250);
           }
           setBulkFeedbackMsg('');
@@ -2447,23 +2478,23 @@
         if (!file) return;
         const lowerName = String(file.name || '').toLowerCase();
         const isZipFile = lowerName.endsWith('.zip');
-        const isHtmlFile = lowerName.endsWith('.html') || lowerName.endsWith('.htm');
+        const isHtmlFile = /\.(html?|xhtml|txt|ztx)$/i.test(lowerName);
         if (!isZipFile && !isHtmlFile) {
           event.target.value = '';
           setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
-          setHtmlProjectFeedback('HTML 또는 ZIP 파일만 선택할 수 있습니다.');
+          setHtmlProjectFeedback('HTML, XHTML, TXT, ZTX 또는 ZIP 파일만 선택할 수 있습니다.');
           return;
         }
-        const maxSize = isZipFile ? 30 * 1024 * 1024 : 700 * 1024;
+        const maxSize = 30 * 1024 * 1024;
         if (file.size > maxSize) {
           event.target.value = '';
           setHtmlProjectForm((prev) => ({ ...prev, code: '', fileName: '', fileSize: 0, projectType: 'html', archiveFile: null }));
-          setHtmlProjectFeedback(isZipFile ? 'ZIP 파일은 30MB 이하로 제출해주세요.' : 'HTML 파일은 700KB 이하로 제출해주세요.');
+          setHtmlProjectFeedback('파일은 30MB 이하로 제출해주세요.');
           return;
         }
 
         setHtmlFileLoading(true);
-        setHtmlProjectFeedback(isZipFile ? 'ZIP 게임의 index.html과 연결 파일을 확인하는 중입니다...' : 'HTML 파일을 읽는 중입니다...');
+        setHtmlProjectFeedback(isZipFile ? 'ZIP 게임의 index.html과 연결 파일을 확인하는 중입니다...' : '실행 파일을 읽는 중입니다...');
         try {
           const code = isZipFile ? await buildHtmlFromZip(file) : await file.text();
           if (!String(code || '').trim()) throw new Error('내용이 없는 파일입니다.');
@@ -2476,11 +2507,11 @@
             fileName: file.name,
             fileSize: file.size,
             projectType: isZipFile ? 'zip' : 'html',
-            archiveFile: isZipFile ? file : null
+            archiveFile: file
           }));
           setHtmlProjectFeedback(isZipFile
             ? 'ZIP 게임을 불러왔습니다. 미리 실행한 뒤 제출할 수 있습니다.'
-            : 'HTML 파일을 불러왔습니다. 미리 실행하거나 바로 제출할 수 있습니다.');
+            : '실행 파일을 불러왔습니다. 미리 실행하거나 바로 제출할 수 있습니다.');
         } catch (error) {
           console.error(error);
           event.target.value = '';
@@ -2500,12 +2531,11 @@
         const projectType = htmlProjectForm.projectType === 'zip' ? 'zip' : 'html';
         if (!studentName) { setHtmlProjectFeedback('이름을 선택해주세요.'); return; }
         if (!title) { setHtmlProjectFeedback('작품 제목을 입력해주세요.'); return; }
-        if (!fileName || !code) { setHtmlProjectFeedback('먼저 HTML 또는 ZIP 파일을 선택해주세요.'); return; }
-        if (projectType === 'html' && code.length > 700000) { setHtmlProjectFeedback('HTML 파일 내용이 너무 큽니다. 더 작은 파일을 선택해주세요.'); return; }
-        if (projectType === 'zip' && !htmlProjectForm.archiveFile) { setHtmlProjectFeedback('ZIP 파일을 다시 선택해주세요.'); return; }
+        if (!fileName || !code) { setHtmlProjectFeedback('먼저 실행 파일 또는 ZIP 파일을 선택해주세요.'); return; }
+        if (!htmlProjectForm.archiveFile) { setHtmlProjectFeedback('작품 파일을 다시 선택해주세요.'); return; }
 
         setIsProcessing(true);
-        setHtmlProjectFeedback(projectType === 'zip' ? 'ZIP 게임 파일을 저장하는 중입니다...' : '작품을 제출하는 중입니다...');
+        setHtmlProjectFeedback('작품 파일을 저장하는 중입니다...');
         let uploadedArchiveRef = null;
         let projectSaved = false;
         try {
@@ -2514,23 +2544,20 @@
             studentName,
             title,
             originalFileName: fileName,
+            fileSize: Number(htmlProjectForm.fileSize || 0),
             projectType,
             isPublished: false,
             timestamp: Date.now()
           };
 
-          if (projectType === 'zip') {
-            const safeFileName = Array.from(fileName).map((character) => /[a-zA-Z0-9._-]/.test(character) ? character : '_').join('');
-            const archivePath = (isCanvasEnvironment ? 'artifacts/' + appId + '/' : '') + 'htmlProjects/' + Date.now() + '_' + safeFileName;
-            uploadedArchiveRef = ref(storage, archivePath);
-            const uploadTask = uploadBytesResumable(uploadedArchiveRef, htmlProjectForm.archiveFile);
-            await new Promise((resolve, reject) => uploadTask.on('state_changed', null, reject, resolve));
-            projectData.archiveUrl = await getDownloadURL(uploadedArchiveRef);
-            projectData.archivePath = archivePath;
-            projectData.code = '';
-          } else {
-            projectData.code = code;
-          }
+          const safeFileName = Array.from(fileName).map((character) => /[a-zA-Z0-9._-]/.test(character) ? character : '_').join('');
+          const archivePath = (isCanvasEnvironment ? 'artifacts/' + appId + '/' : '') + 'htmlProjects/' + Date.now() + '_' + safeFileName;
+          uploadedArchiveRef = ref(storage, archivePath);
+          const uploadTask = uploadBytesResumable(uploadedArchiveRef, htmlProjectForm.archiveFile);
+          await new Promise((resolve, reject) => uploadTask.on('state_changed', null, reject, resolve));
+          projectData.archiveUrl = await getDownloadURL(uploadedArchiveRef);
+          projectData.archivePath = archivePath;
+          projectData.code = '';
 
           await addDoc(htmlProjectsPath, projectData);
           projectSaved = true;
@@ -2672,7 +2699,7 @@
                       <div className="flex items-start justify-between gap-3 mb-4">
                         <div>
                           <h3 className="text-lg font-black text-emerald-800"><Icon name="users" size={18} className="mr-2" /> 일괄 포인트 지급</h3>
-                          <p className="text-sm text-emerald-700 mt-1">이름을 쉼표나 줄바꿈으로 입력해 한 번에 지급합니다.</p>
+                          <p className="text-sm text-emerald-700 mt-1">성을 빼고 이름만 적어도 한 번에 지급됩니다.</p>
                         </div>
                         <button type="button" onClick={() => setBulkOpen(false)} className="text-emerald-700 hover:text-emerald-900 font-bold">닫기</button>
                       </div>
@@ -2685,7 +2712,7 @@
                         <input type="number" value={bulkAmount} onChange={(e) => setBulkAmount(e.target.value)} placeholder="포인트 예: 100" className="border border-emerald-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
                         <input type="text" value={bulkDesc} onChange={(e) => setBulkDesc(e.target.value)} placeholder="공통 내역 예: 발표 우수" className="border border-emerald-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
                       </div>
-                      <textarea value={bulkNames} onChange={(e) => setBulkNames(e.target.value)} placeholder="예: 고우민, 권다윤, 김도진" className="w-full min-h-[90px] border border-emerald-200 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
+                      <textarea value={bulkNames} onChange={(e) => setBulkNames(e.target.value)} placeholder="예: 우민, 다윤, 도진" className="w-full min-h-[90px] border border-emerald-200 rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white" />
                       <div className="flex gap-2 mb-3 flex-wrap">
                         <button type="button" onClick={() => setBulkNames(getNamesByGender(null))} className="px-3 py-2 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-sm text-emerald-700">전체 이름 채우기</button>
                         <button type="button" onClick={() => setBulkNames(getNamesByGender('남'))} className="px-3 py-2 bg-white hover:bg-emerald-100 border border-emerald-200 rounded-lg font-bold text-sm text-emerald-700">남학생</button>
@@ -2932,12 +2959,12 @@
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-black text-slate-700 mb-1.5">HTML 또는 ZIP 게임 파일</label>
+                        <label className="block text-sm font-black text-slate-700 mb-1.5">HTML 계열·TXT·ZTX 또는 ZIP 게임 파일</label>
                         <div className="border-2 border-dashed border-cyan-200 bg-white rounded-2xl p-4">
                           <input
                             ref={htmlFileInputRef}
                             type="file"
-                            accept=".html,.htm,.zip,text/html,application/zip"
+                            accept=".html,.htm,.xhtml,.txt,.ztx,.zip,text/html,application/xhtml+xml,text/plain,application/zip"
                             onChange={handleHtmlProjectFileSelect}
                             disabled={htmlFileLoading}
                             className="w-full text-sm text-slate-600 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:bg-cyan-600 file:text-white file:font-black hover:file:bg-cyan-700"
@@ -2950,11 +2977,11 @@
                               </span>
                               <div className="min-w-0">
                                 <p className="font-black text-sm truncate">{htmlProjectForm.fileName}</p>
-                                <p className="text-xs font-bold text-emerald-600">{htmlProjectForm.projectType === 'zip' ? 'ZIP 게임' : '단일 HTML'} · {Math.max(1, Math.ceil((htmlProjectForm.fileSize || 0) / 1024))}KB · 실행 준비 완료</p>
+                                <p className="text-xs font-bold text-emerald-600">{htmlProjectForm.projectType === 'zip' ? 'ZIP 게임' : '단일 실행 파일'} · {Math.max(1, Math.ceil((htmlProjectForm.fileSize || 0) / 1024))}KB · 실행 준비 완료</p>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-3 text-xs font-bold text-slate-400">.html · .htm · .zip 지원 · ZIP 최대 30MB</p>
+                            <p className="mt-3 text-xs font-bold text-slate-400">.html · .htm · .xhtml · .txt · .ztx · .zip · 파일당 최대 30MB</p>
                           )}
                         </div>
                       </div>
@@ -2963,7 +2990,7 @@
                           type="button"
                           onClick={() => {
                             const code = String(htmlProjectForm.code || '').trim();
-                            if (!code) { setHtmlProjectFeedback('먼저 HTML 또는 ZIP 파일을 선택해주세요.'); return; }
+                            if (!code) { setHtmlProjectFeedback('먼저 실행 파일 또는 ZIP 파일을 선택해주세요.'); return; }
                             setRunningHtmlProject({
                               id: 'draft-' + Date.now(),
                               title: String(htmlProjectForm.title || '').trim() || '작성 중인 작품',
