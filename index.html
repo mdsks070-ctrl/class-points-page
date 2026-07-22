@@ -48,6 +48,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script>
     // 기존 모듈형 API 이름을 compat SDK에 연결하는 어댑터 — 앱 코드는 수정 없이 그대로 동작
@@ -70,6 +71,17 @@
         doc: function (db) { return db.doc(Array.prototype.slice.call(arguments, 1).join('/')); },
         onSnapshot: function (refOrQuery, onNext, onError) { return refOrQuery.onSnapshot(onNext, onError); },
         deleteDoc: function (docRef) { return docRef.delete(); },
+        getDatabase: function () { return firebase.database(); },
+        databaseRef: function (database, path) { return database.ref(path); },
+        databasePush: function (databaseRef) { return databaseRef.push(); },
+        databaseSet: function (databaseRef, data) { return databaseRef.set(data); },
+        databaseUpdate: function (databaseRef, data) { return databaseRef.update(data); },
+        databaseRemove: function (databaseRef) { return databaseRef.remove(); },
+        databaseGet: function (databaseRef) { return databaseRef.once('value'); },
+        databaseOnValue: function (databaseRef, onNext, onError) {
+          databaseRef.on('value', onNext, onError);
+          return function () { databaseRef.off('value', onNext); };
+        },
         getStorage: function () { return firebase.storage(); },
         ref: function (storage, path) { return storage.ref(path); },
         uploadBytesResumable: function (storageRef, file) { return storageRef.put(file); },
@@ -100,6 +112,7 @@
         const {
           initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
           getFirestore, collection, addDoc, getDocs, updateDoc, doc, onSnapshot, deleteDoc,
+          getDatabase, databaseRef, databasePush, databaseSet, databaseUpdate, databaseRemove, databaseGet, databaseOnValue,
           getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject
         } = firebaseModules;
     // 아이콘 컴포넌트 (FontAwesome 맵핑)
@@ -186,6 +199,12 @@
     const getHtmlProjectChunksPath = (projectId) => isCanvasEnvironment
       ? collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', projectId, 'chunks')
       : collection(db, 'htmlProjects', projectId, 'chunks');
+
+    const HTML_PROJECTS_REALTIME_ROOT = 'rooms/class-points-html-projects';
+    const getHtmlProjectsRealtimeRef = () => databaseRef(realtimeDb, `${HTML_PROJECTS_REALTIME_ROOT}/projects`);
+    const getHtmlProjectRealtimeRef = (projectId) => databaseRef(realtimeDb, `${HTML_PROJECTS_REALTIME_ROOT}/projects/${projectId}`);
+    const getHtmlProjectChunksRealtimeRef = (projectId) => databaseRef(realtimeDb, `${HTML_PROJECTS_REALTIME_ROOT}/files/${projectId}`);
+    const getHtmlProjectChunkRealtimeRef = (projectId, chunkIndex) => databaseRef(realtimeDb, `${HTML_PROJECTS_REALTIME_ROOT}/files/${projectId}/${chunkIndex}`);
 
     const normalizeZipPath = (value) => {
       const parts = String(value || '').replace(/\\/g, '/').split('/');
@@ -394,6 +413,23 @@
         const prepareProject = async () => {
           try {
             let source = String(project.code || '');
+            if (!source && project.storageMode === 'realtimeChunks') {
+              const chunkSnapshot = await databaseGet(getHtmlProjectChunksRealtimeRef(project.id));
+              const chunkData = chunkSnapshot.val() || {};
+              const chunks = Object.keys(chunkData).map((key) => ({
+                index: Number(key),
+                data: String(chunkData[key] || '')
+              }));
+              chunks.sort((a, b) => a.index - b.index);
+              if (project.chunkCount && chunks.length !== Number(project.chunkCount)) {
+                throw new Error('작품 파일 일부를 불러오지 못했습니다.');
+              }
+              const encodedFile = chunks.map((chunk) => chunk.data).join('');
+              const fileBlob = base64ToBlob(encodedFile, project.fileMimeType);
+              source = project.projectType === 'zip'
+                ? await buildHtmlFromZip(fileBlob)
+                : await fileBlob.text();
+            }
             if (!source && project.storageMode === 'firestoreChunks') {
               const chunkSnapshot = await getDocs(getHtmlProjectChunksPath(project.id));
               const chunks = [];
@@ -468,6 +504,7 @@
     const firebaseConfig = isCanvasEnvironment ? JSON.parse(__firebase_config) : {
       apiKey: "AIzaSyDrZ5KDbkfR3hDj9U0lI2VHhgzNXNE_1cU",
       authDomain: "school-debate-1.firebaseapp.com",
+      databaseURL: "https://school-debate-1-default-rtdb.firebaseio.com",
       projectId: "school-debate-1",
       storageBucket: "school-debate-1.firebasestorage.app",
       messagingSenderId: "711490484046",
@@ -476,6 +513,7 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const realtimeDb = isCanvasEnvironment ? null : getDatabase(app);
     const storage = getStorage(app);
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'school-debate-1';
     // 명렬표
@@ -706,18 +744,26 @@
           data.sort((a, b) => b.timestamp - a.timestamp);
           setVideos(data);
         });
-        const unsubHtmlProjects = onSnapshot(htmlProjectsPath, (snapshot) => {
-          const data = [];
-          snapshot.forEach((doc) => {
-            const project = { id: doc.id, ...doc.data() };
-            if (project.uploadStatus !== 'uploading') data.push(project);
-          });
-          data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-          setHtmlProjects(data);
-        }, (error) => {
+        const handleHtmlProjectsError = (error) => {
           console.error('HTML 작품함 불러오기 오류:', error);
           setHtmlProjectFeedback('작품함을 불러오지 못했습니다. 잠시 후 다시 열어주세요.');
-        });
+        };
+        const unsubHtmlProjects = isCanvasEnvironment
+          ? onSnapshot(htmlProjectsPath, (snapshot) => {
+              const data = [];
+              snapshot.forEach((doc) => {
+                const project = { id: doc.id, ...doc.data() };
+                if (project.uploadStatus !== 'uploading') data.push(project);
+              });
+              data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+              setHtmlProjects(data);
+            }, handleHtmlProjectsError)
+          : databaseOnValue(getHtmlProjectsRealtimeRef(), (snapshot) => {
+              const projectsById = snapshot.val() || {};
+              const data = Object.keys(projectsById).map((id) => ({ id, ...projectsById[id] }));
+              data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+              setHtmlProjects(data);
+            }, handleHtmlProjectsError);
         return () => { unsubSurveys(); unsubSurveyBoards(); unsubSurveyResponses(); unsubWorldcupPolls(); unsubWorldcupResponses(); unsubWorldcupLiveVotes(); unsubPairPhotoRequests(); unsubStudents(); unsubHistory(); unsubLinks(); unsubVideos(); unsubHtmlProjects(); };
       }, [user]);
       useEffect(() => {
@@ -2583,7 +2629,6 @@
         let projectDocRef = null;
         let projectSaved = false;
         try {
-          const htmlProjectsPath = isCanvasEnvironment ? collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects') : collection(db, 'htmlProjects');
           const encodedFile = await fileToBase64(htmlProjectForm.archiveFile);
           const chunks = [];
           for (let offset = 0; offset < encodedFile.length; offset += HTML_PROJECT_CHUNK_SIZE) {
@@ -2596,25 +2641,39 @@
             fileSize: Number(htmlProjectForm.fileSize || 0),
             fileMimeType: htmlProjectForm.archiveFile.type || (projectType === 'zip' ? 'application/zip' : 'text/html'),
             projectType,
-            storageMode: 'firestoreChunks',
+            storageMode: isCanvasEnvironment ? 'firestoreChunks' : 'realtimeChunks',
             chunkCount: chunks.length,
-            uploadStatus: 'uploading',
+            uploadStatus: isCanvasEnvironment ? 'uploading' : 'ready',
             code: '',
             isPublished: false,
             timestamp: Date.now()
           };
 
-          projectDocRef = await addDoc(htmlProjectsPath, projectData);
-          const chunksPath = getHtmlProjectChunksPath(projectDocRef.id);
-          for (let start = 0; start < chunks.length; start += 6) {
-            const batch = chunks.slice(start, start + 6);
-            await Promise.all(batch.map((chunkData, batchIndex) => addDoc(chunksPath, {
-              index: start + batchIndex,
-              data: chunkData
-            })));
-            setHtmlProjectFeedback('작품 파일을 저장하는 중입니다... ' + Math.min(start + batch.length, chunks.length) + '/' + chunks.length);
+          if (isCanvasEnvironment) {
+            const htmlProjectsPath = collection(db, 'artifacts', appId, 'public', 'data', 'htmlProjects');
+            projectDocRef = await addDoc(htmlProjectsPath, projectData);
+            const chunksPath = getHtmlProjectChunksPath(projectDocRef.id);
+            for (let start = 0; start < chunks.length; start += 6) {
+              const batch = chunks.slice(start, start + 6);
+              await Promise.all(batch.map((chunkData, batchIndex) => addDoc(chunksPath, {
+                index: start + batchIndex,
+                data: chunkData
+              })));
+              setHtmlProjectFeedback('작품 파일을 저장하는 중입니다... ' + Math.min(start + batch.length, chunks.length) + '/' + chunks.length);
+            }
+            await updateDoc(projectDocRef, { uploadStatus: 'ready' });
+          } else {
+            projectDocRef = databasePush(getHtmlProjectsRealtimeRef());
+            const projectId = projectDocRef.key;
+            for (let start = 0; start < chunks.length; start += 6) {
+              const batch = chunks.slice(start, start + 6);
+              await Promise.all(batch.map((chunkData, batchIndex) => (
+                databaseSet(getHtmlProjectChunkRealtimeRef(projectId, start + batchIndex), chunkData)
+              )));
+              setHtmlProjectFeedback('작품 파일을 저장하는 중입니다... ' + Math.min(start + batch.length, chunks.length) + '/' + chunks.length);
+            }
+            await databaseSet(projectDocRef, projectData);
           }
-          await updateDoc(projectDocRef, { uploadStatus: 'ready' });
           projectSaved = true;
           setHtmlProjectForm(getEmptyHtmlProjectForm());
           if (htmlFileInputRef.current) htmlFileInputRef.current.value = '';
@@ -2624,11 +2683,16 @@
           console.error(error);
           if (projectDocRef && !projectSaved) {
             try {
-              const partialChunks = await getDocs(getHtmlProjectChunksPath(projectDocRef.id));
-              const cleanupTasks = [];
-              partialChunks.forEach((chunkDoc) => cleanupTasks.push(deleteDoc(chunkDoc.ref)));
-              await Promise.all(cleanupTasks);
-              await deleteDoc(projectDocRef);
+              if (isCanvasEnvironment) {
+                const partialChunks = await getDocs(getHtmlProjectChunksPath(projectDocRef.id));
+                const cleanupTasks = [];
+                partialChunks.forEach((chunkDoc) => cleanupTasks.push(deleteDoc(chunkDoc.ref)));
+                await Promise.all(cleanupTasks);
+                await deleteDoc(projectDocRef);
+              } else {
+                await databaseRemove(getHtmlProjectChunksRealtimeRef(projectDocRef.key));
+                await databaseRemove(projectDocRef);
+              }
             } catch (cleanupError) {
               console.error(cleanupError);
             }
@@ -2642,13 +2706,18 @@
         if (!isTeacher || isProcessing) return;
         setIsProcessing(true);
         try {
-          const projectRef = isCanvasEnvironment
-            ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
-            : doc(db, 'htmlProjects', project.id);
-          await updateDoc(projectRef, {
+          const visibilityData = {
             isPublished: !project.isPublished,
             publishedAt: project.isPublished ? null : Date.now()
-          });
+          };
+          if (project.storageMode === 'realtimeChunks') {
+            await databaseUpdate(getHtmlProjectRealtimeRef(project.id), visibilityData);
+          } else {
+            const projectRef = isCanvasEnvironment
+              ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
+              : doc(db, 'htmlProjects', project.id);
+            await updateDoc(projectRef, visibilityData);
+          }
         } catch (error) {
           console.error(error);
           setHtmlProjectFeedback('공개 상태 변경 중 오류가 발생했습니다.');
@@ -2661,19 +2730,24 @@
         if (!window.confirm('이 HTML 작품을 삭제할까요? 삭제하면 되돌릴 수 없습니다.')) return;
         setIsProcessing(true);
         try {
-          const projectRef = isCanvasEnvironment
-            ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
-            : doc(db, 'htmlProjects', project.id);
-          if (project.storageMode === 'firestoreChunks') {
-            const chunkSnapshot = await getDocs(getHtmlProjectChunksPath(project.id));
-            const deleteTasks = [];
-            chunkSnapshot.forEach((chunkDoc) => deleteTasks.push(deleteDoc(chunkDoc.ref)));
-            await Promise.all(deleteTasks);
+          if (project.storageMode === 'realtimeChunks') {
+            await databaseRemove(getHtmlProjectChunksRealtimeRef(project.id));
+            await databaseRemove(getHtmlProjectRealtimeRef(project.id));
+          } else {
+            const projectRef = isCanvasEnvironment
+              ? doc(db, 'artifacts', appId, 'public', 'data', 'htmlProjects', project.id)
+              : doc(db, 'htmlProjects', project.id);
+            if (project.storageMode === 'firestoreChunks') {
+              const chunkSnapshot = await getDocs(getHtmlProjectChunksPath(project.id));
+              const deleteTasks = [];
+              chunkSnapshot.forEach((chunkDoc) => deleteTasks.push(deleteDoc(chunkDoc.ref)));
+              await Promise.all(deleteTasks);
+            }
+            if (project.archivePath) {
+              try { await deleteObject(ref(storage, project.archivePath)); } catch (storageError) { console.error(storageError); }
+            }
+            await deleteDoc(projectRef);
           }
-          if (project.archivePath) {
-            try { await deleteObject(ref(storage, project.archivePath)); } catch (storageError) { console.error(storageError); }
-          }
-          await deleteDoc(projectRef);
           if (runningHtmlProject && runningHtmlProject.id === project.id) setRunningHtmlProject(null);
         } catch (error) {
           console.error(error);
